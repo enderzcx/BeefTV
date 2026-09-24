@@ -26,7 +26,10 @@ describe("desktop release build contract", () => {
         expect(dockerfile).toContain("AS protocol-package-build");
         expect(dockerfile).not.toContain("payment-package");
         expect(dockerfile).not.toContain("verify-payment-packages.sh");
-        expect(packageJson.scripts?.test).toContain("--max-concurrency=1");
+        expect(packageJson.scripts?.test).toContain("scripts/run-test-suite.mjs");
+        const testRunner = readFileSync(resolve(root, "web/scripts/run-test-suite.mjs"), "utf8");
+        expect(testRunner).toContain("mutatesBrowserGlobals");
+        expect(testRunner).toContain("for (const file of isolated) run([file])");
     });
 
     test("locks the release version and injects Go build metadata", () => {

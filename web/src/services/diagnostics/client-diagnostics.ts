@@ -124,7 +124,7 @@ export function recordDiagnosticEvent(input: DiagnosticEventInput) {
         category: input.category,
         code: redactClientText(input.code),
         message: redactClientText(input.message) || "未命名诊断事件",
-        route: normalizeRoute(input.route || (typeof window !== "undefined" ? window.location.pathname : "")),
+        route: normalizeRoute(input.route || (typeof window !== "undefined" ? window.location?.pathname || "" : "")),
         durationMs: input.durationMs === undefined ? undefined : clampNumber(input.durationMs, 0, 86_400_000),
         httpStatus: input.httpStatus === undefined ? undefined : clampNumber(input.httpStatus, 0, 599),
         requestId: safeDiagnosticId(input.requestId),
