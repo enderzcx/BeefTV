@@ -128,13 +128,6 @@ export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog:
         const inferredProtocol = mapped.protocol || protocolForModelCatalog(item.supportedEndpointTypes);
         const inferredCapability = mapped.capability || modelProtocolCapability(inferredProtocol) || item.modelType;
         if (mapped.skipGeneration) {
-            if (existing) {
-                const rest = { ...existing };
-                delete rest.protocol;
-                delete rest.capability;
-                delete rest.capabilityConfig;
-                next.push({ ...rest, model: item.id, ...(item.displayName ? { displayName: item.displayName } : {}) });
-            }
             continue;
         }
         if (existing) {

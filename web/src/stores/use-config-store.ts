@@ -814,11 +814,7 @@ function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
         const current = existing.get(model);
         if (!current) continue;
         if (current.capability === "image" || current.capability === "video") continue;
-        const rest = { ...current };
-        delete rest.protocol;
-        delete rest.capability;
-        delete rest.capabilityConfig;
-        existing.set(model, { ...rest, model });
+        existing.delete(model);
     }
     for (const model of models.filter(isVideoModelName)) {
         const current = existing.get(model);
