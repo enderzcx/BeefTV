@@ -36,7 +36,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
-    assertVideoConfig(requestConfig, requestConfig.model);
+    assertVideoConfig(requestConfig, selectedModel);
     assertVideoCapability(modelCapabilityConfigFor(config, selectedModel).video!, references, videoReferences, audioReferences, config.videoSeconds);
     const deps: VideoProviderDeps = { transport: createVideoTransport(requestConfig), response: videoResponseTools };
     if (requestConfig.interfaceType === "newapi-channel-2") return createVideoGenerationsTask(deps, requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -51,7 +51,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
-    assertVideoConfig(requestConfig, requestConfig.model);
+    assertVideoConfig(requestConfig, task.model);
     const deps: VideoProviderDeps = { transport: createVideoTransport(requestConfig), response: videoResponseTools };
     if (task.provider === "video-generations") return pollVideoGenerationsTask(deps, requestConfig, task, options);
     if (task.provider === "gemini-veo") return pollGeminiVeoTask(deps, requestConfig, task, options);

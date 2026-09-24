@@ -14,9 +14,10 @@ function audioTransport(config: AiConfig) {
 }
 
 export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.audioModel);
+    const selectedModel = (config.model || config.audioModel).trim();
+    const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const model = requestConfig.model.trim();
-    assertAudioConfig(requestConfig, model);
+    assertAudioConfig(requestConfig, selectedModel);
     const format = normalizeAudioFormatValue(config.audioFormat);
     const instructions = config.audioInstructions.trim();
     const payload = {
@@ -142,10 +143,10 @@ export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<U
     return uploadMediaFile(audio, "audio");
 }
 
-function assertAudioConfig(config: AiConfig, model: string) {
-    if (!model) throw new Error("请先配置音频模型");
+export function assertAudioConfig(config: AiConfig, selectedModel: string) {
+    if (!selectedModel.trim() && !config.model.trim()) throw new Error("请先配置音频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
-    const channel = resolveModelChannel(config, model);
+    const channel = resolveModelChannel(config, selectedModel || config.model);
     if (!channelHasGenerationCredential(channel)) {
         throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接 BeefAPI" : "请先配置 API Key");
     }

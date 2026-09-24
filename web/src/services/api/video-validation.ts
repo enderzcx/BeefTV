@@ -26,10 +26,10 @@ export function assertVideoCapability(
     }
 }
 
-export function assertVideoConfig(config: ResolvedAiConfig, model: string) {
-    if (!model) throw new Error("请先配置视频模型");
+export function assertVideoConfig(config: ResolvedAiConfig, selectedModel: string) {
+    if (!selectedModel.trim() && !config.model.trim()) throw new Error("请先配置视频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
-    const channel = resolveModelChannel(config, model);
+    const channel = resolveModelChannel(config, selectedModel || config.model);
     if (!channelHasGenerationCredential(channel)) {
         throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接 BeefAPI" : "请先配置 API Key");
     }
