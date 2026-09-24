@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
-	github.com/volcengine/volc-sdk-golang v1.0.253
+	github.com/volcengine/volc-sdk-golang v1.0.257
 	github.com/wailsapp/wails/v2 v2.16.0
 	golang.org/x/net v0.57.0
 	golang.org/x/sync v0.22.0
