@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { modelConfigChannelPresentation, modelConfigChannelStatusLabel } from "../src/pages/settings/channel-settings-pane";
+import { modelConfigChannelPresentation, modelConfigChannelStatusLabel, shouldReloadModelConfigForBeefAPI } from "../src/pages/settings/channel-settings-pane";
 import { createModelChannel } from "../src/stores/use-config-store";
 
 test("pinned BeefAPI is visible and cannot be deleted before models are fetched", () => {
@@ -21,4 +21,14 @@ test("BeefAPI status copy reflects enterprise connection state", () => {
     expect(modelConfigChannelStatusLabel(channel, { status: "idle", revision: 1, dirty: false, error: "" }, { state: "pending", userCode: "ABCD-EFGH", hasCredential: false })).toBe("请在浏览器中确认 ABCD-EFGH");
     expect(modelConfigChannelStatusLabel(channel, { status: "idle", revision: 2, dirty: false, error: "" }, { state: "connected", account: { id: "acct-1", display_name: "Ender" }, hasCredential: true })).toBe("已连接 Ender");
     expect(modelConfigChannelStatusLabel(channel, { status: "idle", revision: 2, dirty: false, error: "" }, { state: "revoked", hasCredential: true })).toBe("连接已失效，请重新连接");
+});
+
+test("BeefAPI connected transition reloads local model config", () => {
+    expect(shouldReloadModelConfigForBeefAPI("pending", "connected")).toBe(true);
+    expect(shouldReloadModelConfigForBeefAPI(undefined, "connected")).toBe(true);
+    expect(shouldReloadModelConfigForBeefAPI("connected", "connected")).toBe(false);
+    expect(shouldReloadModelConfigForBeefAPI("connected", "disconnected")).toBe(true);
+    expect(shouldReloadModelConfigForBeefAPI("catalog_failed", "disconnected")).toBe(true);
+    expect(shouldReloadModelConfigForBeefAPI("pending", "pending")).toBe(false);
+    expect(shouldReloadModelConfigForBeefAPI(undefined, "disconnected")).toBe(false);
 });

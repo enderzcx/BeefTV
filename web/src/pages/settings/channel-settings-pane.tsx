@@ -7,10 +7,11 @@ import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/chann
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { mergeFetchedChannelModelProfiles } from "@/lib/channel-model-catalog";
 import { fetchChannelModels, type ChannelModelFetchResult } from "@/services/api/image";
-import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionsFromChannels, useConfigStore, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionsFromChannels, normalizeConfigSnapshot, useConfigStore, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { ChannelModelSettings } from "./channel-model-settings";
 import { workspaceCapabilities } from "@/services/workspace-mode";
-import { getModelConfigPersistenceState, subscribeModelConfigPersistence, type ModelConfigPersistenceState } from "@/services/model-config-repository";
+import { localWorkspaceConfig } from "@/lib/user-session";
+import { getModelConfigPersistenceState, reloadModelConfig, subscribeModelConfigPersistence, type ModelConfigPersistenceState } from "@/services/model-config-repository";
 import { beefAPIConnectionLabel, cancelBeefAPIConnection, disconnectBeefAPIConnection, getBeefAPIConnection, openBeefAPIWallet, startBeefAPIConnection, type BeefAPIConnectionSummary } from "@/services/api/beefapi-connection";
 
 type UserChannelConnection = "openai" | "gemini";
@@ -31,11 +32,22 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
     const [beefConnection, setBeefConnection] = useState<BeefAPIConnectionSummary | null>(null);
     const [beefBusy, setBeefBusy] = useState(false);
 
+    const applyBeefConnection = async (summary: BeefAPIConnectionSummary, previousState = beefConnection?.state) => {
+        setBeefConnection(summary);
+        if (!shouldReloadModelConfigForBeefAPI(previousState, summary.state)) return;
+        try {
+            const result = await reloadModelConfig();
+            replaceConfig(localWorkspaceConfig(normalizeConfigSnapshot({ config: result.config }).config));
+        } catch {
+            // Keep the connection status even if the catalog refresh fails.
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
         void getBeefAPIConnection()
             .then((summary) => {
-                if (!cancelled) setBeefConnection(summary);
+                if (!cancelled) void applyBeefConnection(summary, undefined);
             })
             .catch(() => undefined);
         return () => {
@@ -47,7 +59,7 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
         if (beefConnection?.state !== "pending") return;
         const timer = window.setInterval(() => {
             void getBeefAPIConnection()
-                .then(setBeefConnection)
+                .then((summary) => applyBeefConnection(summary, "pending"))
                 .catch(() => undefined);
         }, 2000);
         return () => window.clearInterval(timer);
@@ -55,14 +67,22 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
 
     const runBeefAction = async (action: () => Promise<BeefAPIConnectionSummary>, fallback: string) => {
         setBeefBusy(true);
+        const previousState = beefConnection?.state;
         try {
             const summary = await action();
-            setBeefConnection(summary);
+            await applyBeefConnection(summary, previousState);
         } catch (error) {
             message.error(error instanceof Error ? error.message : fallback);
         } finally {
             setBeefBusy(false);
         }
+    };
+    const retryBeefConnection = async () => {
+        const state = beefConnection?.state;
+        if (state === "expired" || state === "revoked" || state === "rejected") {
+            await disconnectBeefAPIConnection();
+        }
+        return startBeefAPIConnection();
     };
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
     const runningHubReady = Boolean(config.runningHub.enabled && config.runningHub.baseUrl.trim() && config.runningHub.apiKey.trim() && config.runningHub.workflowId.trim());
@@ -265,7 +285,7 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
                                                 busy={beefBusy}
                                                 onConnect={() => void runBeefAction(startBeefAPIConnection, "无法开始连接")}
                                                 onCancel={() => void runBeefAction(cancelBeefAPIConnection, "无法取消连接")}
-                                                onRetry={() => void runBeefAction(startBeefAPIConnection, "无法重新连接")}
+                                                onRetry={() => void runBeefAction(retryBeefConnection, "无法重新连接")}
                                                 onDisconnect={() => void runBeefAction(disconnectBeefAPIConnection, "无法断开连接")}
                                                 onWallet={() => {
                                                     void openBeefAPIWallet().catch((error) => message.error(error instanceof Error ? error.message : "无法打开企业钱包"));
@@ -500,6 +520,11 @@ function ChannelStatus({ channel, persistence, connection }: { channel: ModelCha
     );
 }
 
+export function shouldReloadModelConfigForBeefAPI(previous: string | undefined, next: string) {
+    if (next === "connected" && previous !== "connected") return true;
+    return next === "disconnected" && Boolean(previous) && previous !== "disconnected";
+}
+
 export function modelConfigChannelStatusLabel(channel: ModelChannel, persistence: ModelConfigPersistenceState, connection?: BeefAPIConnectionSummary | null) {
     if (isBuiltinBeefAPIChannel(channel)) {
         if (connection?.state === "connected") return beefAPIConnectionLabel(connection);
@@ -554,7 +579,19 @@ function BeefAPIConnectionActions({
             </>
         );
     }
-    if (state === "expired" || state === "revoked" || state === "rejected" || state === "store_error" || state === "catalog_failed" || state === "cancelled") {
+    if (state === "catalog_failed") {
+        return (
+            <>
+                <Button className={buttonClass} size="small" type="primary" loading={busy} onClick={onRetry}>
+                    重新连接
+                </Button>
+                <Button className={buttonClass} size="small" loading={busy} onClick={onDisconnect}>
+                    断开连接
+                </Button>
+            </>
+        );
+    }
+    if (state === "expired" || state === "revoked" || state === "rejected" || state === "store_error" || state === "cancelled") {
         return (
             <Button className={buttonClass} size="small" type="primary" loading={busy} onClick={onRetry}>
                 重新连接

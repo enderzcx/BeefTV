@@ -21,4 +21,6 @@ test("local generation pipeline keeps config, task lifecycle, and result storage
     expect(imageStorage).toContain("pendingRemoteUpload");
     expect(imageStorage).toContain("await store.setItem(storageKey, blob)");
     expect(channelSettings).toContain("fetchChannelModels(channel, !localMode)");
+    expect(channelSettings).toContain("reloadModelConfig");
+    expect(channelSettings).toContain("shouldReloadModelConfigForBeefAPI");
 });

@@ -30,6 +30,7 @@ type fakeEnterprise struct {
 	mode         string
 	completeMode string
 	catalogFail  bool
+	models       []map[string]any
 	opened       []string
 }
 
@@ -106,13 +107,22 @@ func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 		_, _ = io.WriteString(w, `{"market":"enterprise","token_id":9001,"key_name":"BeefTV","account":{"id":42,"username":"ender","display_name":"Ender"}}`)
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
-		if fake.catalogFail {
+		fake.mu.Lock()
+		fail := fake.catalogFail
+		models := fake.models
+		fake.mu.Unlock()
+		if fail {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{{"id": "gpt-test", "model_type": "text"}, {"id": "seedance-test", "model_type": "video"}},
-		})
+		if models == nil {
+			models = []map[string]any{
+				{"id": "gpt-test", "supported_endpoint_types": []string{"openai"}},
+				{"id": "gpt-image-2", "supported_endpoint_types": []string{"image-generation"}},
+				{"id": "seedance-test", "supported_endpoint_types": []string{"openai-video"}},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": models})
 	})
 	mux.HandleFunc("/desktop-auth", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok")
@@ -277,6 +287,16 @@ func TestConnectionHappyPathSavesBeforeAckAndHidesKey(t *testing.T) {
 	}
 	if catalogSize(channel["models"]) < 2 {
 		t.Fatalf("catalog not applied: %#v", channel["models"])
+	}
+	foundImage := false
+	for _, raw := range channel["modelProfiles"].([]any) {
+		profile, _ := raw.(map[string]any)
+		if profile["model"] == "gpt-image-2" && profile["capability"] == "image" && profile["protocol"] == "openai-image" {
+			foundImage = true
+		}
+	}
+	if !foundImage {
+		t.Fatalf("live endpoint types were not mapped: %#v", channel["modelProfiles"])
 	}
 	if fake.completes < 1 {
 		t.Fatal("ack was not sent after save")
@@ -555,6 +575,85 @@ func TestOpenWalletUsesConsoleTopup(t *testing.T) {
 	}
 }
 
+func TestStartDoesNotMintNewDeviceWhileCredentialExists(t *testing.T) {
+	fake := &fakeEnterprise{catalogFail: true}
+	svc, _, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, svc, StateCatalogFailed)
+	if fake.codes != 1 {
+		t.Fatalf("codes after first start = %d", fake.codes)
+	}
+	summary, err := svc.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.State == StateConnected {
+		t.Fatal("catalog failure must not report connected")
+	}
+	if fake.codes != 1 {
+		t.Fatalf("retry minted another device code: %d", fake.codes)
+	}
+	if !summary.HasCredential {
+		t.Fatal("saved key was discarded on retry")
+	}
+	fake.mu.Lock()
+	fake.catalogFail = false
+	fake.mu.Unlock()
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	connected := waitState(t, svc, StateConnected)
+	if fake.codes != 1 {
+		t.Fatalf("catalog retry minted another device: %d", fake.codes)
+	}
+	if !connected.HasCredential || connected.State != StateConnected {
+		t.Fatalf("catalog retry did not recover: %#v", connected)
+	}
+}
+
+func TestAcceptTokenReplacesCatalogAndRevokesPriorKeyOnAccountSwitch(t *testing.T) {
+	fake := &fakeEnterprise{}
+	svc, store, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, svc, StateConnected)
+	fake.mu.Lock()
+	fake.models = []map[string]any{
+		{"id": "model-b", "supported_endpoint_types": []string{"openai-video"}},
+		{"id": "model-c", "supported_endpoint_types": []string{"openai"}},
+	}
+	fake.mu.Unlock()
+	if err := svc.acceptToken(context.Background(), "dev-switch", tokenSuccess{
+		APIKey: "ent-secret-key-2", BaseURL: TokenBaseURL(svc.Origin()), Market: "enterprise", Group: "enterprise",
+		KeyName: "BeefTV-2", TokenID: wireID("9002"),
+		Account: Account{ID: wireID("99"), Username: "other", DisplayName: "Other"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if fake.deletes != 1 {
+		t.Fatalf("previous key was not revoked: deletes=%d", fake.deletes)
+	}
+	effective, _, err := store.LoadEffectiveModelConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := findChannel(effective.Config["channels"].([]any), ChannelID)
+	ids := map[string]bool{}
+	for _, item := range mergeModelIDs(channel["models"], nil) {
+		ids[item.(string)] = true
+	}
+	if ids["gpt-test"] || ids["gpt-image-2"] || !ids["model-b"] || !ids["model-c"] {
+		t.Fatalf("account switch kept stale models: %#v", channel["models"])
+	}
+	switched := svc.Status()
+	if switched.Account == nil || switched.Account.ID.String() != "99" {
+		t.Fatalf("account not switched: %#v", switched)
+	}
+}
+
 func TestSaveStateFailureIsDistinct(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, connectionStoreFile), 0o700); err != nil {
@@ -566,12 +665,15 @@ func TestSaveStateFailureIsDistinct(t *testing.T) {
 }
 
 func TestFrontendWriteCannotClobberManagedFields(t *testing.T) {
-	incoming := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "from-ui", "deviceCode": "leak"}}}
-	existing := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "disk-secret"}}}
+	incoming := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "from-ui", "deviceCode": "leak", "models": []any{}}}}
+	existing := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "disk-secret", "models": []any{"gpt-image-2"}, "modelProfiles": []any{map[string]any{"model": "gpt-image-2", "capability": "image"}}}}}
 	PreserveManagedChannel(incoming, existing, true)
 	channel := findChannel(incoming["channels"].([]any), "beefapi")
 	if channel["apiKey"] != "" || channel["deviceCode"] != nil {
 		t.Fatalf("managed fields leaked into write: %#v", channel)
+	}
+	if catalogSize(channel["models"]) != 1 {
+		t.Fatalf("empty frontend write dropped managed catalog: %#v", channel["models"])
 	}
 }
 

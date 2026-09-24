@@ -195,7 +195,7 @@ func (s *Service) Start(ctx context.Context) (Summary, error) {
 	}
 	if s.needsFinalizeLocked() {
 		s.mu.Unlock()
-		if err := s.finalizeSavedCredential(ctx); err == nil {
+		if err := s.finalizeSavedCredential(ctx, ""); err == nil {
 			return s.Status(), nil
 		}
 		summary := s.Status()
@@ -208,6 +208,11 @@ func (s *Service) Start(ctx context.Context) (Summary, error) {
 		s.mu.Unlock()
 		return summary, nil
 	} else if s.state.Status == StatePending && s.state.Device != nil && s.now().Before(parseTime(s.state.Device.ExpiresAt)) {
+		summary := s.summaryLocked()
+		s.mu.Unlock()
+		return summary, nil
+	}
+	if s.state.hasCredential() {
 		summary := s.summaryLocked()
 		s.mu.Unlock()
 		return summary, nil
@@ -324,7 +329,7 @@ func (s *Service) Recover(ctx context.Context) error {
 	state := s.state
 	s.mu.Unlock()
 	if needsFinalize {
-		return s.finalizeSavedCredential(ctx)
+		return s.finalizeSavedCredential(ctx, "")
 	}
 	if state.Status == StatePending && state.Device != nil {
 		expires := parseTime(state.Device.ExpiresAt)
@@ -418,6 +423,11 @@ func (s *Service) acceptToken(ctx context.Context, deviceCode string, token toke
 		return errStore
 	}
 	s.mu.Lock()
+	previousAccount := ""
+	if s.state.Account != nil {
+		previousAccount = s.state.Account.ID.String()
+	}
+	previousEncrypted := s.state.EncryptedAPIKey
 	account := token.Account
 	account.ID = wireID(accountID)
 	if s.state.Device == nil {
@@ -443,10 +453,15 @@ func (s *Service) acceptToken(ctx context.Context, deviceCode string, token toke
 		return errStore
 	}
 	s.mu.Unlock()
-	return s.finalizeSavedCredential(ctx)
+	if previousEncrypted != "" && previousAccount != "" && previousAccount != accountID {
+		if oldKey, decryptErr := decryptSecret(s.dataDir, previousEncrypted); decryptErr == nil && oldKey != "" && oldKey != token.APIKey {
+			_ = s.revokeRemote(oldKey)
+		}
+	}
+	return s.finalizeSavedCredential(ctx, previousAccount)
 }
 
-func (s *Service) finalizeSavedCredential(ctx context.Context) error {
+func (s *Service) finalizeSavedCredential(ctx context.Context, previousAccountID string) error {
 	_ = ctx
 	s.mu.Lock()
 	state := s.state
@@ -454,10 +469,7 @@ func (s *Service) finalizeSavedCredential(ctx context.Context) error {
 	if state.Device != nil {
 		deviceCode = state.Device.DeviceCode
 	}
-	previousAccount := ""
-	if state.Account != nil {
-		previousAccount = state.Account.ID.String()
-	}
+	previousAccount := strings.TrimSpace(previousAccountID)
 	s.mu.Unlock()
 	if !state.hasCredential() {
 		return errNotConnected

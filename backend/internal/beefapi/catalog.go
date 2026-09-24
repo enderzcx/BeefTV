@@ -30,8 +30,12 @@ func applyCatalog(store *workspace.ProviderConfig, models []CatalogModel, previo
 		if model.DisplayName != "" {
 			profile["displayName"] = model.DisplayName
 		}
-		if capability := catalogCapability(model); capability != "" {
+		capability, protocol := catalogCapabilityAndProtocol(model)
+		if capability != "" {
 			profile["capability"] = capability
+		}
+		if protocol != "" {
+			profile["protocol"] = protocol
 		}
 		nextProfiles = append(nextProfiles, profile)
 	}
@@ -100,23 +104,64 @@ func clearBeefAPIModels(store *workspace.ProviderConfig) error {
 }
 
 func catalogCapability(model CatalogModel) string {
+	capability, _ := catalogCapabilityAndProtocol(model)
+	return capability
+}
+
+func catalogProtocol(model CatalogModel) string {
+	_, protocol := catalogCapabilityAndProtocol(model)
+	return protocol
+}
+
+func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol string) {
 	switch strings.ToLower(strings.TrimSpace(model.ModelType)) {
 	case "text", "image", "video", "audio":
-		return strings.ToLower(strings.TrimSpace(model.ModelType))
+		capability = strings.ToLower(strings.TrimSpace(model.ModelType))
 	}
+	endpoints := make([]string, 0, len(model.SupportedEndpointTypes))
 	for _, endpoint := range model.SupportedEndpointTypes {
-		switch strings.ToLower(strings.TrimSpace(endpoint)) {
-		case "chat.completions", "responses", "messages":
-			return "text"
-		case "images", "images.generations":
-			return "image"
-		case "videos", "videos.generations":
-			return "video"
-		case "audio", "audio.speech":
-			return "audio"
+		if item := strings.ToLower(strings.TrimSpace(endpoint)); item != "" {
+			endpoints = append(endpoints, item)
 		}
 	}
-	return ""
+	type mapping struct {
+		capability string
+		protocol   string
+		endpoints  []string
+	}
+	for _, item := range []mapping{
+		{capability: "image", protocol: "openai-image", endpoints: []string{"image-generation", "images", "images.generations"}},
+		{capability: "video", protocol: "openai-videos", endpoints: []string{"openai-video", "videos", "videos.generations"}},
+		{capability: "audio", protocol: "openai-audio", endpoints: []string{"audio", "audio.speech"}},
+		{capability: "text", protocol: "openai-response", endpoints: []string{"openai-response", "openai-response-compact", "responses"}},
+		{capability: "text", protocol: "claude-api", endpoints: []string{"anthropic", "messages"}},
+		{capability: "text", protocol: "google-gemini-generate-content", endpoints: []string{"gemini"}},
+		{capability: "text", protocol: "chat-completion", endpoints: []string{"openai", "chat.completions"}},
+	} {
+		if !containsAnyString(endpoints, item.endpoints) {
+			continue
+		}
+		if capability == "" {
+			capability = item.capability
+		}
+		if protocol == "" && (capability == item.capability || capability == "") {
+			protocol = item.protocol
+		}
+	}
+	return capability, protocol
+}
+
+func containsAnyString(values, candidates []string) bool {
+	seen := map[string]bool{}
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, candidate := range candidates {
+		if seen[candidate] {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeModelIDs(existing any, incoming []any) []any {
@@ -131,7 +176,12 @@ func mergeModelIDs(existing any, incoming []any) []any {
 		seen[id] = true
 		result = append(result, id)
 	}
-	if items, ok := existing.([]any); ok {
+	switch items := existing.(type) {
+	case []any:
+		for _, item := range items {
+			appendID(item)
+		}
+	case []string:
 		for _, item := range items {
 			appendID(item)
 		}
@@ -253,6 +303,10 @@ func PreserveManagedChannel(incoming, existing map[string]any, managed bool) {
 			channel["apiKey"] = ""
 			channel["secretKey"] = ""
 			channel["credentialRef"] = CredentialRef
+			if existingBeef != nil && len(mergeModelIDs(channel["models"], nil)) == 0 && len(mergeModelIDs(existingBeef["models"], nil)) > 0 {
+				channel["models"] = existingBeef["models"]
+				channel["modelProfiles"] = existingBeef["modelProfiles"]
+			}
 		} else if existingBeef != nil {
 			incomingKey, _ := channel["apiKey"].(string)
 			if incomingKey == "" || incomingKey == workspace.RedactedSecret {

@@ -153,6 +153,27 @@ test("model config repository refreshes revision after conflict and retries the 
     expect(repository.getState()).toMatchObject({ status: "saved", revision: 8, dirty: false });
 });
 
+test("model config repository reload replaces stale dirty edits with the server snapshot", async () => {
+    const repository = createModelConfigRepository({
+        read: async () => ({
+            config: { ...defaultConfig, channels: [createModelChannel({ id: "beefapi", models: ["enterprise-image"], pinned: true })] },
+            revision: 9,
+            health: "ready",
+            source: "builtin+local",
+        }),
+        write: async (_config, expectedRevision) => {
+            return { saved: true, revision: expectedRevision + 1 };
+        },
+    });
+    await repository.hydrate();
+    const pending = repository.commit({ ...defaultConfig, channels: [createModelChannel({ id: "beefapi", models: [], pinned: true })] });
+    const reloaded = await repository.reload();
+    await pending;
+    expect(reloaded.revision).toBe(9);
+    expect(reloaded.config.channels[0]?.models).toEqual(["enterprise-image"]);
+    expect(repository.getState()).toMatchObject({ dirty: false, revision: 9 });
+});
+
 test("model config repository does not save browser state before canonical hydration", async () => {
     let writes = 0;
     const repository = createModelConfigRepository({

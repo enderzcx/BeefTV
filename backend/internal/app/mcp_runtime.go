@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/mcp"
 )
 
@@ -60,10 +59,12 @@ func (s *Service) mcpListModels(raw json.RawMessage) (any, error) {
 		}
 	}
 	var catalog any
+	var intent *ModelRequestIntent
 	var err error
 	if args.UserID != "" && args.CanvasID != "" && (args.Mode != "" || len(args.ReferenceNodeIDs) > 0) {
 		body, _ := json.Marshal(map[string]any{"mode": args.Mode, "referenceNodeIds": args.ReferenceNodeIDs})
-		intent, intentErr := s.cloudAgentModelIntent(args.UserID, args.CanvasID, string(body))
+		var intentErr error
+		intent, intentErr = s.cloudAgentModelIntent(args.UserID, args.CanvasID, string(body))
 		if intentErr != nil {
 			return nil, intentErr
 		}
@@ -74,46 +75,35 @@ func (s *Service) mcpListModels(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.appendLocalBeefAPIModels(catalog), nil
+	return s.appendLocalBeefAPIModels(catalog, intent), nil
 }
 
-func (s *Service) appendLocalBeefAPIModels(catalog any) any {
+func (s *Service) appendLocalBeefAPIModels(catalog any, intent *ModelRequestIntent) any {
 	payload, _ := catalog.(map[string]any)
 	if payload == nil {
 		payload = map[string]any{"models": []any{}}
 	}
-	models, _ := payload["models"].([]any)
-	body, err := s.ReadLocalModelConfig()
-	if err != nil || len(body) == 0 {
-		return payload
+	models := coerceCatalogModels(payload["models"])
+	seen := map[string]bool{}
+	for _, raw := range models {
+		if name := catalogModelName(raw); name != "" {
+			seen[name] = true
+		}
+		if item, _ := raw.(map[string]any); item != nil {
+			if selection, _ := item["selection"].(map[string]any); selection != nil {
+				seen[strings.TrimSpace(stringValue(selection["channelId"]))+"::"+strings.TrimSpace(stringValue(selection["channelModelKey"]))] = true
+			}
+		}
 	}
-	var config struct {
-		Channels []struct {
-			ID            string   `json:"id"`
-			Models        []string `json:"models"`
-			ModelProfiles []struct {
-				Model      string `json:"model"`
-				Capability string `json:"capability"`
-			} `json:"modelProfiles"`
-		} `json:"channels"`
-	}
-	if json.Unmarshal(body, &config) != nil {
-		return payload
-	}
-	for _, channel := range config.Channels {
-		if channel.ID != beefapi.ChannelID {
+	for _, item := range s.localChannelModelListItems(intent) {
+		selection, _ := item["selection"].(map[string]any)
+		key := strings.TrimSpace(stringValue(selection["channelId"])) + "::" + strings.TrimSpace(stringValue(selection["channelModelKey"]))
+		name := catalogModelName(item)
+		if seen[key] || (name != "" && seen[name] && selection != nil && stringValue(selection["channelId"]) == "") {
 			continue
 		}
-		capabilityByModel := map[string]string{}
-		for _, profile := range channel.ModelProfiles {
-			capabilityByModel[profile.Model] = profile.Capability
-		}
-		for _, modelName := range channel.Models {
-			models = append(models, map[string]any{
-				"name": modelName, "capability": capabilityByModel[modelName],
-				"selection": map[string]any{"channelId": beefapi.ChannelID, "channelModelKey": modelName, "credentialRef": managedBeefAPIRef},
-			})
-		}
+		seen[key] = true
+		models = append(models, item)
 	}
 	payload["models"] = models
 	return payload
@@ -153,13 +143,10 @@ func (s *Service) mcpSubmitMedia(raw json.RawMessage) (any, error) {
 		return nil, Forbidden("审批内容与待执行操作不一致")
 	}
 	if len(args.Arguments) > 0 && strings.TrimSpace(string(args.Arguments)) != "" && string(args.Arguments) != "null" {
-		if strings.TrimSpace(call.Function.Arguments) != strings.TrimSpace(string(args.Arguments)) && cloudAgentApprovalCallHash(call) != cloudAgentApprovalCallHash(cloudAgentCall{ID: call.ID, Function: call.Function}) {
-			frozenHash := cloudAgentApprovalCallHash(call)
-			caller := call
-			caller.Function.Arguments = string(args.Arguments)
-			if cloudAgentApprovalCallHash(caller) != frozenHash {
-				return nil, Forbidden("不能替换已批准的生成参数")
-			}
+		caller := call
+		caller.Function.Arguments = string(args.Arguments)
+		if cloudAgentApprovalCallHash(caller) != cloudAgentApprovalCallHash(call) {
+			return nil, Forbidden("不能替换已批准的生成参数")
 		}
 	}
 	admissionID := cloudAgentMediaExecutionID(run.UserID, run.ID, call.ID)
