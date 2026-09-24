@@ -581,13 +581,28 @@ export function configuredModelMatchesCapability(config: AiConfig, model: string
     return selectableModelsByCapability(config, capability).includes(normalized);
 }
 
+export const MANAGED_BEEFAPI_CREDENTIAL_REF = "beefapi-enterprise";
+
+export function isBuiltinBeefAPIChannel(channel: Pick<ModelChannel, "id" | "pinned">) {
+    return channel.id === "beefapi" && channel.pinned === true;
+}
+
+export function channelHasManagedBeefAPICredential(channel: Pick<ModelChannel, "id" | "pinned" | "credentialRef" | "hasApiKey">) {
+    if (!isBuiltinBeefAPIChannel(channel)) return false;
+    return channel.credentialRef === MANAGED_BEEFAPI_CREDENTIAL_REF || channel.hasApiKey === true;
+}
+
+export function channelHasGenerationCredential(channel: Pick<ModelChannel, "id" | "pinned" | "credentialRef" | "hasApiKey" | "apiKey">) {
+    return channelHasManagedBeefAPICredential(channel) || Boolean(channel.apiKey?.trim());
+}
+
 function isAiConfigReady(config: AiConfig, model: string) {
     if (config.taskWorkflowProvider === "runninghub") {
         const key = config.runningHub.apiKey;
         return Boolean(config.runningHub.enabled && config.runningHub.baseUrl.trim() && key.trim() && config.runningHub.workflowId.trim());
     }
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && channel.baseUrl.trim() && channelHasGenerationCredential(channel));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -936,7 +951,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         apiFormat: interfaceType ? (interfaceType === "gemini-veo" || interfaceType === "gemini-image" ? ("gemini" as const) : interfaceType === "claude-api" ? ("claude" as const) : ("openai" as const)) : channel.apiFormat,
         interfaceType,
         channelId: channel.scope === "system" ? channel.id : "",
-        credentialRef: channel.credentialRef || (channel.id === "beefapi" && channel.pinned ? "beefapi-enterprise" : undefined),
+        credentialRef: channel.credentialRef || (isBuiltinBeefAPIChannel(channel) ? MANAGED_BEEFAPI_CREDENTIAL_REF : undefined),
     };
 }
 

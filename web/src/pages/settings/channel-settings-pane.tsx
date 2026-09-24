@@ -7,7 +7,7 @@ import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/chann
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { mergeFetchedChannelModelProfiles } from "@/lib/channel-model-catalog";
 import { fetchChannelModels, type ChannelModelFetchResult } from "@/services/api/image";
-import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionsFromChannels, normalizeConfigSnapshot, useConfigStore, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { channelHasGenerationCredential, channelHasManagedBeefAPICredential, createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, isBuiltinBeefAPIChannel, modelOptionsFromChannels, normalizeConfigSnapshot, useConfigStore, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { ChannelModelSettings } from "./channel-model-settings";
 import { workspaceCapabilities } from "@/services/workspace-mode";
 import { localWorkspaceConfig } from "@/lib/user-session";
@@ -505,7 +505,7 @@ export function isChannelReady(channel: ModelChannel) {
 
 export function focusInvalidChannelField(channel: ModelChannel) {
     const baseUrlError = channelConnectionError({ ...channel, apiKey: "valid", secretKey: "valid" });
-    const field = baseUrlError ? "base-url" : !channel.apiKey.trim() ? "api-key" : requiresSecretKey(channel) && !channel.secretKey?.trim() ? "secret-key" : "models";
+    const field = baseUrlError ? "base-url" : !channelHasGenerationCredential(channel) ? "api-key" : requiresSecretKey(channel) && !channel.secretKey?.trim() ? "secret-key" : "models";
     requestAnimationFrame(() => {
         const element = document.getElementById(`channel-${channel.id}-${field}`);
         element?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -566,10 +566,10 @@ export function modelConfigChannelStatusLabel(channel: ModelChannel, persistence
     if (isBuiltinBeefAPIChannel(channel)) {
         if (connection?.state === "connected") return beefAPIConnectionLabel(connection);
         if (connection?.state && connection.state !== "disconnected") return beefAPIConnectionLabel(connection);
-        if (channel.hasApiKey || channel.credentialRef) return "待确认连接";
+        if (channelHasManagedBeefAPICredential(channel)) return "待确认连接";
         return "未连接";
     }
-    if (!channel.apiKey.trim()) return "待配置";
+    if (!channelHasGenerationCredential(channel)) return "待配置";
     if (persistence.status === "saving") return "保存中";
     if (persistence.status === "error") return "保存失败";
     if (persistence.status === "saved") return "已保存";
@@ -642,10 +642,6 @@ function BeefAPIConnectionActions({
     );
 }
 
-function isBuiltinBeefAPIChannel(channel: ModelChannel) {
-    return channel.id === "beefapi" && channel.pinned === true;
-}
-
 export function modelConfigChannelPresentation(channel: ModelChannel) {
     const builtin = isBuiltinBeefAPIChannel(channel);
     return {
@@ -707,10 +703,10 @@ function channelConnectionError(channel: ModelChannel, connection?: BeefAPIConne
         return "Base URL 格式不正确";
     }
     if (isBuiltinBeefAPIChannel(channel)) {
-        if (connection?.state === "connected" || channel.credentialRef || channel.hasApiKey) return "";
+        if (connection?.state === "connected" || channelHasManagedBeefAPICredential(channel)) return "";
         return "请先连接 BeefAPI";
     }
-    if (!channel.apiKey.trim()) return "请填写 API Key / Access Key";
+    if (!channelHasGenerationCredential(channel)) return "请填写 API Key / Access Key";
     if (requiresSecretKey(channel) && !channel.secretKey?.trim()) return "当前协议需要填写 Secret Key";
     return "";
 }
