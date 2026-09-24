@@ -352,24 +352,20 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 <div className="thin-scrollbar block h-full w-full select-text overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-4 pb-4 pt-0 font-mono" style={textStyle} onWheel={(event) => event.stopPropagation()}>
                     {node.metadata.content}
                 </div>
-            ) : <EmptyTextNodeContent node={node} theme={theme} />}
+            ) : <EmptyTextNodeContent theme={theme} />}
         </div>
     );
 }
 
-function EmptyTextNodeContent({ node, theme }: Pick<CanvasNodeContentProps, "node" | "theme">) {
-    const model = node.metadata?.model || "GVLM 3.1";
+function EmptyTextNodeContent({ theme }: Pick<CanvasNodeContentProps, "theme">) {
     return (
-        <div className="flex h-full w-full flex-col overflow-hidden px-6 pb-4 pt-5" style={{ color: theme.node.text }}>
+        <div className="pointer-events-none flex h-full w-full flex-col overflow-hidden px-6 pb-4 pt-5" style={{ color: theme.node.text }} aria-hidden>
             <div className="flex flex-1 items-center justify-center">
-                <div className="canvas-node-empty-text-mark flex flex-col items-center gap-1.5 opacity-30" aria-hidden>
+                <div className="canvas-node-empty-text-mark flex flex-col items-center gap-1.5 opacity-30">
                     {[0, 1, 2, 3].map((line) => <span key={line} className="h-1 w-14 rounded-full" style={{ background: theme.node.text }} />)}
                 </div>
             </div>
-            <div className="canvas-node-text-footer flex items-center justify-between border-t pt-2 text-[var(--fs-tiny)]" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                <span>{model}</span>
-                <span>6 积分</span>
-            </div>
+            <div className="canvas-node-text-footer border-t pt-2" style={{ borderColor: theme.node.stroke }} />
         </div>
     );
 }
