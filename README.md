@@ -50,6 +50,8 @@ BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
 open backend/cmd/desktop/build/bin/BeefTV.app
 ```
 
+Windows amd64 在 Windows 本机执行 `scripts/build-beeftv-windows-release.ps1`。产物是 `backend\cmd\desktop\build\bin\BeefTV.exe` 和旁边的 `plugin-packages\`。前提见 [`docs/desktop-release.md`](docs/desktop-release.md)。
+
 首次启动后，在“模型配置”中添加自己的模型渠道。渠道可能连接外部供应商，但 BeefTV 本身不要求云端账号。
 
 ### Web 本地开发

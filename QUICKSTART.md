@@ -12,7 +12,17 @@ BeefTV 桌面版是无需登录的本地优先工作区。项目、画布、素�
 BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
 ```
 
-macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。首次打开后直接进入本地工作区，不需要注册或登录。
+macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。
+
+Windows amd64 必须在 Windows 本机构建（需要 PATH 中的 Go、Bun，以及编译 go-sqlite3 的 GCC）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windows-release.ps1
+```
+
+输出为 `backend\cmd\desktop\build\bin\BeefTV.exe`，官方插件在旁边的 `plugin-packages\`。前提与数据目录见 `docs/desktop-release.md`。
+
+首次打开后直接进入本地工作区，不需要注册或登录。
 
 ## 配置模型
 

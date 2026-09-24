@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/protocol"
 )
 
@@ -259,39 +260,7 @@ func isBuiltInPluginSource(source string) bool {
 }
 
 func officialPluginPackageDir() (string, error) {
-	if configured := strings.TrimSpace(os.Getenv("CANVAS_OFFICIAL_PLUGIN_DIR")); configured != "" {
-		info, err := os.Stat(configured)
-		if err != nil || !info.IsDir() {
-			return "", fmt.Errorf("CANVAS_OFFICIAL_PLUGIN_DIR 不是可读目录：%s", configured)
-		}
-		return configured, nil
-	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	candidates := []string{"/app/plugin-packages"}
-	if executable, executableErr := os.Executable(); executableErr == nil {
-		// Production Wails bundles official plugins next to the executable in
-		// Contents/Resources so Finder launches do not depend on cwd.
-		executableDir := filepath.Dir(executable)
-		candidates = append(candidates, filepath.Join(executableDir, "..", "Resources", "plugin-packages"))
-	}
-	current := workingDir
-	for range 8 {
-		candidates = append(candidates, filepath.Join(current, "plugin-packages"))
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
-	}
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到官方 plugin-packages 目录；请设置 CANVAS_OFFICIAL_PLUGIN_DIR")
+	return generation.OfficialPluginPackageDir()
 }
 
 func (c *pluginRuntime) reload() error {
