@@ -7,6 +7,7 @@ export type DesktopRuntimeConfig = {
 
 type DesktopRuntimeBinding = {
     RuntimeConfig: () => Promise<DesktopRuntimeConfig>;
+    SaveOwnedMedia?: (fileName: string, resourceID: string) => Promise<boolean>;
 };
 
 declare global {

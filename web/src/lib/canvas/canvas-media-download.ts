@@ -31,6 +31,16 @@ export function buildCanvasMediaDownloadFileName(canvasTitle: string, node: Canv
     return `${canvasName}_${nodeName}_${formatDownloadDate(now)}.${canvasMediaFileExtension(node)}`;
 }
 
+export function sanitizeDownloadFileName(value: string, fallback = "未命名文件") {
+    const leaf = value.trim().replace(/\\/g, "/").split("/").pop() || "";
+    const lastDot = leaf.lastIndexOf(".");
+    const extension = lastDot > 0 ? leaf.slice(lastDot + 1) : "";
+    const base = lastDot > 0 ? leaf.slice(0, lastDot) : leaf;
+    const safeBase = safeFileNamePart(base, fallback);
+    if (!extension || !/^[a-z0-9]{1,8}$/i.test(extension)) return safeBase;
+    return `${safeBase}.${extension.toLowerCase() === "jpeg" ? "jpg" : extension.toLowerCase()}`;
+}
+
 export function canvasMediaFileExtension(node: CanvasNodeData) {
     return extensionFromMimeType(node.metadata?.mimeType)
         || extensionFromContent(node.metadata?.content)

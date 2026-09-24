@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { App } from "antd";
-import { saveAs } from "file-saver";
 
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, FRAME_COLLAPSED_HEIGHT, FRAME_COLLAPSED_WIDTH, getFrameChildIds, isCanvasFolderNode, isFrameNode } from "@/lib/canvas/canvas-frame";
 import { buildCanvasMediaDownloadFileName } from "@/lib/canvas/canvas-media-download";
+import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
+import { downloadOwnedOrBrowserMedia, reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { writeCanvasNodePrompt } from "@/lib/canvas/canvas-node-prompt";
 import { applyBatchPrimaryImage, applyNodeConfigPatch } from "@/lib/canvas/canvas-project-domain";
 import { resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
@@ -198,8 +199,12 @@ export function useCanvasNodeEditor({
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
-        saveAs(node.metadata.content, buildCanvasMediaDownloadFileName(canvasTitle, node));
-    }, [canvasTitle]);
+        void reportOwnedMediaSave(message, downloadOwnedOrBrowserMedia({
+            fileName: buildCanvasMediaDownloadFileName(canvasTitle, node),
+            resourceId: ownedResourceIdFromMediaRef(node.metadata?.storageKey, node.metadata?.content),
+            browserUrl: node.metadata.content,
+        }));
+    }, [canvasTitle, message]);
 
     const saveNodeAsset = useCallback(async (node: CanvasNodeData) => {
         if (node.type !== CanvasNodeType.Text && node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) return message.error("当前节点类型不能保存为素材");
