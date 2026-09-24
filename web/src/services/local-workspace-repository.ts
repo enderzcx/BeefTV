@@ -171,12 +171,13 @@ function revertUnchangedCanvasNodes(
 function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: CanvasProject, patch: CanvasDocumentPersistPatch): CanvasProject {
     const next: CanvasProject = { ...current };
     (Object.keys(patch) as Array<keyof CanvasDocumentPersistPatch>).forEach((key) => {
-        const attempted = patch[key];
-        if (attempted === undefined) return;
-        if (key === "nodes" && Array.isArray(attempted)) {
-            next.nodes = revertUnchangedCanvasNodes(previous.nodes, attempted, current.nodes);
+        if (key === "nodes") {
+            if (!patch.nodes) return;
+            next.nodes = revertUnchangedCanvasNodes(previous.nodes, patch.nodes, current.nodes);
             return;
         }
+        const attempted = patch[key];
+        if (attempted === undefined) return;
         if (sameDocumentValue(current[key], attempted)) {
             (next as Record<string, unknown>)[key] = previous[key];
         }
