@@ -4,7 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { buildNodeConfig } from "@/components/canvas/canvas-node-prompt-panel";
 import {
     audioSettingsSummary,
+    audioSpeechProfile,
     buildAudioSpeechRequest,
+    normalizeAudioFormatValue,
+    normalizeAudioSpeedValue,
     normalizeAudioVoiceValue,
     resolveAudioSpeechSettings,
 } from "@/lib/audio-generation";
@@ -48,6 +51,21 @@ function enterpriseConfig(): AiConfig {
 }
 
 describe("enterprise MiniMax speech settings", () => {
+    test("blank speed stays 1 instead of clamping Number(\"\") to the floor", () => {
+        expect(normalizeAudioSpeedValue("", "minimax-speech-2.8-hd")).toBe("1");
+        expect(normalizeAudioSpeedValue("  ", "gpt-4o-mini-tts")).toBe("1");
+        expect(resolveAudioSpeechSettings("minimax-speech-2.8-hd", {}).audioSpeed).toBe("1");
+        expect(normalizeAudioSpeedValue("0", "minimax-speech-2.8-hd")).toBe("1");
+        expect(normalizeAudioSpeedValue("1.25", "minimax-speech-2.8-hd")).toBe("1.25");
+    });
+
+    test("MiniMax formats follow the native adapter, not OpenAI-only opus", () => {
+        expect(audioSpeechProfile("minimax-speech-2.8-hd").formats.map((item) => item.value)).toEqual(["mp3", "wav", "aac", "flac", "pcm"]);
+        expect(audioSpeechProfile("minimax-music-v3.0").formats.map((item) => item.value)).toEqual(["mp3", "wav", "aac", "flac", "pcm"]);
+        expect(audioSpeechProfile("gpt-4o-mini-tts").formats.map((item) => item.value)).toContain("opus");
+        expect(normalizeAudioFormatValue("opus", "minimax-speech-2.8-hd")).toBe("mp3");
+    });
+
     test("does not coerce MiniMax voices onto OpenAI alloy", () => {
         expect(normalizeAudioVoiceValue("alloy", "beefapi::minimax-speech-2.8-hd")).toBe("male-qn-qingse");
         expect(normalizeAudioVoiceValue("中文", "minimax-speech-2.8-hd")).toBe("male-qn-qingse");
@@ -74,7 +92,7 @@ describe("enterprise MiniMax speech settings", () => {
         });
     });
 
-    test("music omits voice; OpenAI TTS keeps alloy and instructions", () => {
+    test("helper music payload omits voice; OpenAI TTS keeps alloy and instructions", () => {
         expect(buildAudioSpeechRequest({ model: "minimax-music-v3.0", audioFormat: "mp3" }, "轻快的钢琴")).toEqual({
             model: "minimax-music-v3.0",
             input: "轻快的钢琴",

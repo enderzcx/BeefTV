@@ -23,6 +23,10 @@ export const audioFormatOptions = [
     { value: "pcm", label: "PCM" },
 ];
 
+// MiniMax native TTS content types: mp3/wav/flac/aac/pcm. Opus is OpenAI-only;
+// TokenHub will forward it, but MiniMax does not declare a content type for it.
+export const minimaxAudioFormatOptions = audioFormatOptions.filter((item) => item.value !== "opus");
+
 // BeefAPI MiniMax speech: voice is a MiniMax system/cloned ID, not OpenAI alloy.
 // Documented example is male-qn-qingse; these are the T2A 系统音色.
 export const minimaxSpeechVoiceOptions = [
@@ -81,7 +85,7 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
         return {
             kind,
             voices: minimaxSpeechVoiceOptions,
-            formats: audioFormatOptions,
+            formats: minimaxAudioFormatOptions,
             defaultVoice: "male-qn-qingse",
             defaultFormat: "mp3",
             speedMin: 0.5,
@@ -98,7 +102,7 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
         return {
             kind,
             voices: [],
-            formats: audioFormatOptions,
+            formats: minimaxAudioFormatOptions,
             defaultVoice: "",
             defaultFormat: "mp3",
             speedMin: 1,
@@ -148,8 +152,9 @@ export function normalizeAudioFormatValue(value: string, model?: string) {
 
 export function normalizeAudioSpeedValue(value: string, model?: string) {
     const profile = audioSpeechProfile(model);
+    if (!String(value ?? "").trim()) return "1";
     const speed = Number(value);
-    if (!Number.isFinite(speed)) return "1";
+    if (!Number.isFinite(speed) || speed <= 0) return "1";
     return String(Math.max(profile.speedMin, Math.min(profile.speedMax, Number(speed.toFixed(2)))));
 }
 
