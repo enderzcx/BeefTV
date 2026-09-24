@@ -5,6 +5,7 @@ import { FileAudio, FileVideo, Image as ImageIcon, Search } from "lucide-react";
 
 import { generationTaskMode } from "@/lib/canvas/canvas-generation-task-sync";
 import { localTaskHistoryFromProjects } from "@/lib/local-task-history";
+import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -78,10 +79,27 @@ export function generationHistoryPreviewImageSrc(task: GenerationTask) {
     if (mode === "audio") return "";
     if (mode === "video") {
         const poster = task.previewPosterUrl || previewPosterFromResult(task);
-        return isImagePreviewSrc(poster) ? poster : "";
+        return durableImagePreviewSrc(poster);
     }
     const preview = task.previewPosterUrl || task.previewUrl || previewFromResult(task);
-    return isImagePreviewSrc(preview) ? preview : "";
+    return durableImagePreviewSrc(preview) || resourcePreviewFromResult(task);
+}
+
+function durableImagePreviewSrc(value: string) {
+    if (!value || value.startsWith("blob:")) return "";
+    return isImagePreviewSrc(value) ? value : "";
+}
+
+function resourcePreviewFromResult(task: GenerationTask) {
+    if (generationTaskMode(task) !== "image" || !task.resultJson) return "";
+    try {
+        const result = JSON.parse(task.resultJson) as { images?: Array<{ storageKey?: string; dataUrl?: string; url?: string }> };
+        const image = result.images?.[0];
+        const resourceId = resourceIdFromStorageKey(image?.storageKey) || ownedResourceIdFromMediaRef(image?.storageKey, image?.dataUrl || image?.url);
+        return resourceId ? resourceFileUrl(resourceId) : "";
+    } catch {
+        return "";
+    }
 }
 
 function isImagePreviewSrc(value: string) {

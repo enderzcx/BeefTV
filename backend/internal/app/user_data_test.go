@@ -229,6 +229,42 @@ func TestValidateCanvasMediaAssetsRejectsResourceWithoutAsset(t *testing.T) {
 	}
 }
 
+func TestValidateCanvasMediaAssetsHistoryInsertReusesOwnedAsset(t *testing.T) {
+	svc, db, _ := newResourceDeletionTestService(t)
+	resource := model.Resource{
+		ID: "audio-owned", UserID: "user-1", Status: model.ResourceStatusReady,
+		Provider: "local", ObjectKey: "users/user-1/audio/owned.mp3",
+	}
+	asset := model.Asset{ID: "asset-owned", UserID: "user-1", PayloadJSON: `{"id":"asset-owned","data":{"storageKey":"resource:audio-owned"}}`}
+	if err := db.Create(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatal(err)
+	}
+	unbound := json.RawMessage(`{
+		"id":"canvas-1",
+		"nodes":[
+			{"id":"original","type":"audio","metadata":{"assetId":"asset-owned","storageKey":"resource:audio-owned"}},
+			{"id":"history","type":"audio","metadata":{"storageKey":"resource:audio-owned","content":"/api/resources/audio-owned/file"}}
+		]
+	}`)
+	err := svc.validateCanvasMediaAssets("user-1", unbound)
+	if err == nil || !strings.Contains(err.Error(), "尚未进入素材库") {
+		t.Fatalf("history insert without reused assetId = %v", err)
+	}
+	bound := json.RawMessage(`{
+		"id":"canvas-1",
+		"nodes":[
+			{"id":"original","type":"audio","metadata":{"assetId":"asset-owned","storageKey":"resource:audio-owned"}},
+			{"id":"history","type":"audio","metadata":{"assetId":"asset-owned","storageKey":"resource:audio-owned","content":"/api/resources/audio-owned/file"}}
+		]
+	}`)
+	if err := svc.validateCanvasMediaAssets("user-1", bound); err != nil {
+		t.Fatalf("history insert reusing owned asset = %v", err)
+	}
+}
+
 func TestValidateCanvasMediaAssetsAcceptsMatchingNodeAndTimelineAssets(t *testing.T) {
 	svc, db, _ := newResourceDeletionTestService(t)
 	resources := []model.Resource{

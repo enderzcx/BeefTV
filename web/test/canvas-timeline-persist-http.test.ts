@@ -26,7 +26,13 @@ const getState = () => ({
     projects = projects.map((project) => project.id === id ? { ...project, ...patch } : project);
   },
 });
-export const useCanvasStore = { getState, setState: () => {} };
+export const useCanvasStore = {
+  getState,
+  setState: (update) => {
+    const patch = typeof update === "function" ? update(getState()) : update;
+    if (patch.projects) projects = patch.projects;
+  },
+};
 export let flushCalls = 0;
 export let flushImpl = async () => {};
 export const setFlushImpl = (next) => { flushImpl = next; };
@@ -37,11 +43,17 @@ writeFileSync(historyPath, "export const useCanvasHistoryStore = { getState: () 
 writeFileSync(requestPath, `
 export let puts: Array<{ path: string; body: any }> = [];
 export let putError: Error | null = null;
-export const resetPuts = () => { puts = []; putError = null; };
+export let putGuard = null;
+export const resetPuts = () => { puts = []; putError = null; putGuard = null; };
 export const setPutError = (next: Error | null) => { putError = next; };
+export const setPutGuard = (next) => { putGuard = next; };
 export const http = {
   put: async (path: string, body: any) => {
     if (putError) throw putError;
+    if (putGuard) {
+      const guarded = putGuard(path, body);
+      if (guarded) throw guarded;
+    }
     puts.push({ path, body });
     return { project: { id: body.project.id, title: body.project.title, createdAt: body.project.createdAt, updatedAt: body.project.updatedAt, revision: (body.project.revision ?? 0) + 1 } };
   },
@@ -184,6 +196,7 @@ describe("persistCanvasTimeline http", () => {
         }
         expect((caught as Error).message).toBe("画布后端持久化失败");
         expect(request.puts).toEqual([]);
+        expect(store.projects[0].timeline).toBeUndefined();
     });
 });
 
@@ -260,6 +273,7 @@ describe("persistCanvasDocument http", () => {
         expect((caught as Error).message).toBe("IndexedDB hung");
         expect(request.puts).toEqual([]);
         expect(store.flushCalls).toBe(1);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白"]);
     });
 
     it("rejects when the desktop PUT fails", async () => {
@@ -273,6 +287,58 @@ describe("persistCanvasDocument http", () => {
         }
         expect((caught as Error).message).toBe("画布保存失败，请重试");
         expect(request.puts).toEqual([]);
-        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白"]);
+    });
+
+    it("desktop PUT that inspects canvas media rejects unbound history nodes and rolls back", async () => {
+        request.setPutGuard((_path: string, body: { project?: { nodes?: Array<{ metadata?: { assetId?: string; storageKey?: string } }> } }) => {
+            for (const node of body.project?.nodes || []) {
+                const storageKey = String(node.metadata?.storageKey || "");
+                if (storageKey.startsWith("resource:") && !node.metadata?.assetId) {
+                    return new Error("画布媒体尚未进入素材库，请等待同步完成后重试");
+                }
+            }
+            return null;
+        });
+        const original = { ...originalAudioNode, metadata: { ...originalAudioNode.metadata, assetId: "asset-owned" } };
+        store.resetProjects([{ ...project, nodes: [original] }]);
+        let caught: unknown;
+        try {
+            await repository.persistCanvasDocument(project.id, { nodes: [original, historyAudioNode] });
+        } catch (error) {
+            caught = error;
+        }
+        expect((caught as Error).message).toContain("尚未进入素材库");
+        expect(request.puts).toEqual([]);
+        expect(store.projects[0].nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
+            title: node.title,
+            assetId: node.metadata?.assetId || "",
+        }))).toEqual([{ title: "旁白", assetId: "asset-owned" }]);
+    });
+
+    it("desktop PUT that inspects canvas media accepts history nodes that reuse the owned assetId", async () => {
+        request.setPutGuard((_path: string, body: { project?: { nodes?: Array<{ metadata?: { assetId?: string; storageKey?: string } }> } }) => {
+            for (const node of body.project?.nodes || []) {
+                const storageKey = String(node.metadata?.storageKey || "");
+                if (storageKey.startsWith("resource:") && !node.metadata?.assetId) {
+                    return new Error("画布媒体尚未进入素材库，请等待同步完成后重试");
+                }
+            }
+            return null;
+        });
+        const original = { ...originalAudioNode, metadata: { ...originalAudioNode.metadata, assetId: "asset-owned" } };
+        const history = { ...historyAudioNode, metadata: { ...historyAudioNode.metadata, assetId: "asset-owned" } };
+        store.resetProjects([{ ...project, nodes: [original] }]);
+        await repository.persistCanvasDocument(project.id, { nodes: [original, history] });
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].path).toBe("/canvas-projects/canvas-a");
+        expect(request.puts[0].body.assets).toBeUndefined();
+        expect(request.puts[0].body.project.nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
+            title: node.title,
+            assetId: node.metadata?.assetId,
+        }))).toEqual([
+            { title: "旁白", assetId: "asset-owned" },
+            { title: "历史音频", assetId: "asset-owned" },
+        ]);
     });
 });

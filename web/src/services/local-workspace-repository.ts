@@ -144,12 +144,22 @@ type CanvasDocumentPersistPatch = Partial<Pick<CanvasProject, "nodes" | "connect
  * without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
  */
 export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
+    const previous = useCanvasStore.getState().openProject(id);
     useCanvasStore.getState().updateProject(id, patch);
-    if (isLocalWorkspaceMode()) {
-        await syncLocalCanvasProjectToBackend(id);
-        return;
+    try {
+        if (isLocalWorkspaceMode()) {
+            await syncLocalCanvasProjectToBackend(id);
+            return;
+        }
+        await flushCanvasStorePersistence();
+    } catch (error) {
+        if (previous) {
+            useCanvasStore.setState((state) => ({
+                projects: state.projects.map((item) => item.id === id ? previous : item),
+            }));
+        }
+        throw error;
     }
-    await flushCanvasStorePersistence();
 }
 
 /** Timeline edits live on the canvas document. */

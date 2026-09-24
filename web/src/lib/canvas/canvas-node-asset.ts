@@ -1,5 +1,6 @@
 import { getDataUrlByteSize } from "@/lib/image-utils";
 import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
+import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import type { Asset, AssetCategory, NewAsset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId } from "@/types/canvas";
 
@@ -88,6 +89,29 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
         };
     }
     return null;
+}
+
+function canvasNodeResourceId(node: CanvasNodeData) {
+    return ownedResourceIdFromMediaRef(node.metadata?.storageKey, node.metadata?.content);
+}
+
+function assetResourceId(asset: Asset) {
+    if (asset.kind === "text" || asset.kind === "entity") return "";
+    return ownedResourceIdFromMediaRef(asset.data.storageKey, "url" in asset.data ? asset.data.url : undefined);
+}
+
+/** History insert reuses the owned Asset for the same Resource. Do not invent a new pairing. */
+export function bindCanvasNodeResourceAsset(node: CanvasNodeData, sourceNodes: CanvasNodeData[], assets: Asset[]): CanvasNodeData {
+    if (node.metadata?.assetId) return node;
+    const resourceID = canvasNodeResourceId(node);
+    if (!resourceID) return node;
+    const sibling = sourceNodes.find((item) => item.metadata?.assetId && canvasNodeResourceId(item) === resourceID);
+    if (sibling?.metadata?.assetId) {
+        return { ...node, metadata: { ...node.metadata, assetId: sibling.metadata.assetId } };
+    }
+    const asset = assets.find((item) => assetResourceId(item) === resourceID);
+    if (!asset) return node;
+    return { ...node, metadata: { ...node.metadata, assetId: asset.id } };
 }
 
 /** Resource-backed canvas media must have an Asset binding before the whole snapshot can be synced. */

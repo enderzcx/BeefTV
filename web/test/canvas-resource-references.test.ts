@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { autoMentionCanvasResourceReferences, findCanvasResourceAutoLinkMatch, type CanvasResourceReference, applyCanvasConnectionPromptSync, buildAssetMentionReferences, buildCanvasNodeMentionReferenceMap, buildNodeMentionReferences, buildOrderedCanvasResourceReferences, canvasResourceMentionToken, collectUpstreamVideoNodes, imageGenerationReferenceConnections, reorderCanvasResourceConnections, replaceCanvasMentionToken, replaceCanvasReferenceMentions } from "../src/lib/canvas/canvas-resource-references";
-import { canvasNodeToAsset, canvasNodesMissingResourceAssetBinding } from "../src/lib/canvas/canvas-node-asset";
+import { bindCanvasNodeResourceAsset, canvasNodeToAsset, canvasNodesMissingResourceAssetBinding } from "../src/lib/canvas/canvas-node-asset";
 import { buildNodeGenerationInputs } from "../src/components/canvas/canvas-node-generation";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../src/types/canvas";
 
@@ -139,6 +139,29 @@ describe("canvas resource mention slots", () => {
         localOnly.metadata = { content: "data:image/png;base64,local" };
 
         expect(canvasNodesMissingResourceAssetBinding([source, alreadyBound, localOnly]).map((node) => node.id)).toEqual(["legacy-video"]);
+    });
+
+    test("history insert reuses the owned asset for the same resource", () => {
+        const original = videoNode("original");
+        original.metadata = { assetId: "asset-owned", storageKey: "resource:audio-owned", content: "/api/resources/audio-owned/file" };
+        const history = videoNode("history");
+        history.metadata = { storageKey: "resource:audio-owned", content: "/api/resources/audio-owned/file" };
+        const bound = bindCanvasNodeResourceAsset(history, [original], []);
+        expect(bound.metadata?.assetId).toBe("asset-owned");
+        expect(canvasNodesMissingResourceAssetBinding([original, bound])).toEqual([]);
+
+        const fromStore = bindCanvasNodeResourceAsset(history, [], [{
+            id: "asset-from-store",
+            kind: "audio",
+            title: "旁白",
+            coverUrl: "",
+            tags: [],
+            createdAt: "2026-09-24T00:00:00.000Z",
+            updatedAt: "2026-09-24T00:00:00.000Z",
+            data: { url: "/api/resources/audio-owned/file", storageKey: "resource:audio-owned", bytes: 8, mimeType: "audio/mpeg" },
+        }]);
+        expect(fromStore.metadata?.assetId).toBe("asset-from-store");
+        expect(bindCanvasNodeResourceAsset(history, [], []).metadata?.assetId).toBeUndefined();
     });
 
     test("素材库视频优先使用封面，没有封面时保留首帧视频回退源", () => {

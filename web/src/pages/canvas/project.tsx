@@ -128,6 +128,7 @@ import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { persistCanvasDocument, persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
+import { bindCanvasNodeResourceAsset, canvasNodesMissingResourceAssetBinding } from "@/lib/canvas/canvas-node-asset";
 import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasOperationHistory } from "./use-canvas-operation-history";
@@ -359,6 +360,7 @@ function InfiniteCanvasPage() {
     const workspaceMode: CanvasWorkspaceMode = "professional";
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [generationHistoryOpen, setGenerationHistoryOpen] = useState(false);
+    const insertingHistoryRef = useRef(false);
     const [tapNowImportOpen, setTapNowImportOpen] = useState(false);
     const [nodeSearchOpen, setNodeSearchOpen] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
@@ -1434,6 +1436,7 @@ function InfiniteCanvasPage() {
     }, [containerRef, createNode, fitCanvasSelection, nodesRef, projectLoaded, searchParams, setSearchParams]);
 
     const insertGenerationHistoryTask = useCallback(async (task: GenerationTask) => {
+        if (insertingHistoryRef.current) return;
         const mode = generationTaskMode(task);
         const nodeType = mode === "video" ? CanvasNodeType.Video : mode === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Image;
         const node = createCanvasNode(nodeType, getCanvasCenter(), {
@@ -1449,20 +1452,31 @@ function InfiniteCanvasPage() {
             model: task.model,
         });
         node.title = mode === "video" ? "历史视频" : mode === "audio" ? "历史音频" : "历史图片";
+        insertingHistoryRef.current = true;
         try {
             const applied = await applyGenerationTaskResultToNodes([node], task, node.id);
             if (!applied.node) throw new Error("生成结果无法定位到画布节点");
-            const nextNodes = [...nodesRef.current, applied.node];
+            let historyNode = bindCanvasNodeResourceAsset(applied.node, nodesRef.current, useAssetStore.getState().assets);
+            if (canvasNodesMissingResourceAssetBinding([historyNode]).length) {
+                const bound = await ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node: historyNode, source: "canvas-generation", taskId: task.id });
+                historyNode = { ...historyNode, metadata: { ...historyNode.metadata, assetId: bound.assetId } };
+            }
+            if (canvasNodesMissingResourceAssetBinding([historyNode]).length) {
+                throw new Error("生成结果尚未进入素材库，无法插入画布");
+            }
+            const nextNodes = [...nodesRef.current, historyNode];
             await persistCanvasDocument(projectId, { nodes: nextNodes });
             nodesRef.current = nextNodes;
             setNodes(nextNodes);
-            setSelectedNodeIds(new Set([applied.node.id]));
+            setSelectedNodeIds(new Set([historyNode.id]));
             setGenerationHistoryOpen(false);
             message.success("已从生成历史插入到画布");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "生成结果无法插入画布");
+        } finally {
+            insertingHistoryRef.current = false;
         }
-    }, [getCanvasCenter, message, nodesRef, projectId, setNodes, setSelectedNodeIds]);
+    }, [currentProject?.projectId, getCanvasCenter, message, nodesRef, projectId, setNodes, setSelectedNodeIds]);
 
     const handleReplaceNodeReference = useCallback(
         (targetNodeId: string, oldReference: { id: string; nodeId?: string; label?: string; title?: string }, sourceNodeId: string) => {
