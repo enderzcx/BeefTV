@@ -1,5 +1,5 @@
 import { apiBaseURL } from "@/services/api/request";
-import { isSystemProxyBaseUrl, type AiConfig, type ChannelHeader } from "@/stores/use-config-store";
+import { isSystemProxyBaseUrl, MANAGED_BEEFAPI_CREDENTIAL_REF, type AiConfig, type ChannelHeader } from "@/stores/use-config-store";
 
 type RelayConfig = Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat"> & { headers?: ChannelHeader[]; credentialRef?: string };
 
@@ -9,10 +9,20 @@ export type ChannelRequest = {
     credentials: RequestCredentials;
 };
 
+function isManagedEnterpriseRelay(config: Pick<RelayConfig, "baseUrl" | "credentialRef">) {
+    if (config.credentialRef === MANAGED_BEEFAPI_CREDENTIAL_REF) return true;
+    try {
+        return new URL((config.baseUrl || "").trim()).hostname.toLowerCase() === "enterprise.beefapi.com";
+    } catch {
+        return false;
+    }
+}
+
 /** 自定义渠道统一经登录态后端中转，避免依赖第三方服务的浏览器 CORS。 */
 export function channelRequest(config: RelayConfig, upstreamUrl: string, headers: HeadersInit = {}): ChannelRequest {
     const normalizedHeaders = new Headers(headers);
-    const managed = config.credentialRef === "beefapi-enterprise" || /enterprise\.beefapi\.com/i.test(config.baseUrl || "");
+    const managed = isManagedEnterpriseRelay(config);
+    // Mac Wails uses wails:; WebView2 uses http://wails.localhost and still has CORS.
     if (typeof window !== "undefined" && window.location?.protocol === "wails:" && !managed) {
         const normalizedUpstreamUrl = requireHttpUrl(upstreamUrl, "当前模型请求地址");
         normalizedHeaders.set("Authorization", `Bearer ${config.apiKey}`);
