@@ -139,17 +139,21 @@ func catalogModelName(raw any) string {
 	return ""
 }
 
-func coerceCatalogModels(value any) []any {
+func coerceCatalogModels(value any) []map[string]any {
 	switch typed := value.(type) {
-	case []any:
-		return append([]any{}, typed...)
 	case []map[string]any:
-		items := make([]any, 0, len(typed))
-		for _, item := range typed {
+		return append([]map[string]any{}, typed...)
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			item, _ := raw.(map[string]any)
+			if item == nil {
+				continue
+			}
 			items = append(items, item)
 		}
 		return items
 	default:
-		return []any{}
+		return []map[string]any{}
 	}
 }

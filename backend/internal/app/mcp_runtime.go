@@ -81,18 +81,16 @@ func (s *Service) mcpListModels(raw json.RawMessage) (any, error) {
 func (s *Service) appendLocalBeefAPIModels(catalog any, intent *ModelRequestIntent) any {
 	payload, _ := catalog.(map[string]any)
 	if payload == nil {
-		payload = map[string]any{"models": []any{}}
+		payload = map[string]any{"models": []map[string]any{}}
 	}
 	models := coerceCatalogModels(payload["models"])
 	seen := map[string]bool{}
-	for _, raw := range models {
-		if name := catalogModelName(raw); name != "" {
+	for _, item := range models {
+		if name := catalogModelName(item); name != "" {
 			seen[name] = true
 		}
-		if item, _ := raw.(map[string]any); item != nil {
-			if selection, _ := item["selection"].(map[string]any); selection != nil {
-				seen[strings.TrimSpace(stringValue(selection["channelId"]))+"::"+strings.TrimSpace(stringValue(selection["channelModelKey"]))] = true
-			}
+		if selection, _ := item["selection"].(map[string]any); selection != nil {
+			seen[strings.TrimSpace(stringValue(selection["channelId"]))+"::"+strings.TrimSpace(stringValue(selection["channelModelKey"]))] = true
 		}
 	}
 	for _, item := range s.localChannelModelListItems(intent) {

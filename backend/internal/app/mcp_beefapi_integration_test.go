@@ -9,10 +9,10 @@ func TestBeefAPIMCPCatalogPreservesExistingModels(t *testing.T) {
 	}
 	// cloudAgentModelList returns []map[string]any, not []any.
 	catalog := s.appendLocalBeefAPIModels(map[string]any{"models": []map[string]any{{"name": "existing-model"}}}, nil)
-	models := catalog.(map[string]any)["models"].([]any)
+	models := catalog.(map[string]any)["models"].([]map[string]any)
 	found := map[string]bool{}
-	for _, raw := range models {
-		found[raw.(map[string]any)["name"].(string)] = true
+	for _, item := range models {
+		found[item["name"].(string)] = true
 	}
 	if !found["existing-model"] || !found["enterprise-image"] {
 		t.Fatalf("adding enterprise catalog removed existing selection: %v", found)
@@ -25,11 +25,11 @@ func TestBeefAPIMCPListedSelectionCanEnterMediaApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := s.appendLocalBeefAPIModels(map[string]any{"models": []any{}}, nil)
-	models := catalog.(map[string]any)["models"].([]any)
+	models := catalog.(map[string]any)["models"].([]map[string]any)
 	if len(models) != 1 {
 		t.Fatalf("expected enterprise selection, got %d models", len(models))
 	}
-	item := models[0].(map[string]any)
+	item := models[0]
 	selection := item["selection"].(map[string]any)
 	_, err := s.cloudAgentMediaModelName(cloudAgentMediaArgs{
 		Mode: "image", ChannelID: selection["channelId"].(string), ChannelModelKey: selection["channelModelKey"].(string),
