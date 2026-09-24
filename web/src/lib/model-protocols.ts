@@ -1,3 +1,5 @@
+import type { ModelChannel } from "@/stores/use-config-store";
+
 export type ModelProtocol = string;
 export type ProtocolCapability = "text" | "image" | "video" | "audio";
 export type ModelProtocolWorkflow = { id: string; label: string; providerId: string; capability: ProtocolCapability; parameters: Array<{ name: string; type: string; required?: boolean; description?: string; values?: string[]; mapping?: string }>; defaults?: Record<string, string | number | boolean> };
@@ -95,17 +97,19 @@ export function defaultProtocolForModel(model: string, availableProtocols: Model
     return defaultProtocolForCapability(inferProtocolCapabilityFromModel(model), availableProtocols);
 }
 
-export function ensureModelProfilesWithUiDefaults<T extends { model: string; capability?: ProtocolCapability; protocol?: ModelProtocol }>(
+type ChannelModelProfile = NonNullable<ModelChannel["modelProfiles"]>[number];
+
+export function ensureModelProfilesWithUiDefaults(
     models: string[],
-    profiles: T[] | undefined,
+    profiles: Array<Omit<ChannelModelProfile, "capability"> & { capability?: ProtocolCapability }> | undefined,
     availableProtocols: ModelProtocolDefinition[] = [],
-): Array<T & { model: string; capability: ProtocolCapability; protocol: ModelProtocol }> {
+): ChannelModelProfile[] {
     const byModel = new Map((profiles || []).filter((item) => models.includes(item.model)).map((item) => [item.model, item]));
     return models.map((model) => {
         const current = byModel.get(model);
         if (current?.protocol && current.capability) return { ...current, capability: current.capability, protocol: current.protocol };
         const capability = current?.capability || modelProtocolCapability(current?.protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
         const protocol = current?.protocol || defaultProtocolForCapability(capability, availableProtocols);
-        return { ...(current as T | undefined), model, capability, protocol };
+        return { ...current, model, capability, protocol };
     });
 }
