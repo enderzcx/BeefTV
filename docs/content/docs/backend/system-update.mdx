@@ -5,7 +5,7 @@ description: Host Updater、Release 检查、数据库备份迁移、健康验�
 
 # 在线更新与安全回退
 
-管理后台的“系统配置 → 系统更新”只负责管理员鉴权、展示状态和发起操作。真正的 Docker、数据库备份与服务切换由宿主机上的 `open-ai-canvas-host-updater` 执行，业务后端不挂载 Docker Socket。
+管理后台的“系统配置 → 系统更新”只负责管理员鉴权、展示状态和发起操作。真正的 Docker、数据库备份与服务切换由宿主机上的 `beeftv-host-updater` 执行，业务后端不挂载 Docker Socket。
 
 ```text
 管理员浏览器 → Backend 管理 API → 带 Token 的 Unix Socket → Host Updater → Docker Compose
@@ -22,7 +22,7 @@ description: Host Updater、Release 检查、数据库备份迁移、健康验�
 7. 原子更新 `CANVAS_IMAGE_TAG` 和 Compose 文件，启动目标版本。
 8. 连续检查 `/api/health/ready` 的数据库、运行时、schema 和 build version，并经过稳定窗口后才标记成功。
 
-更新状态写入 `/var/lib/open-ai-canvas-updater/state.json`。Backend 或浏览器在切换期间断线不会终止宿主机操作，恢复后可继续读取日志。
+更新状态写入 `/var/lib/beeftv-updater/state.json`。Backend 或浏览器在切换期间断线不会终止宿主机操作，恢复后可继续读取日志。
 
 ## 自动回退
 
@@ -41,8 +41,8 @@ description: Host Updater、Release 检查、数据库备份迁移、健康验�
 GHCR 镜像部署必须把 `CANVAS_IMAGE_TAG` 固定到具体 Release，不可使用 `latest`。安装更新器：
 
 ```bash
-cd /opt/open-ai-canvas
-curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-host-updater.sh | sudo bash
+cd /opt/beeftv
+curl -fsSL https://raw.githubusercontent.com/glanderness/BeefTV/main/scripts/install-host-updater.sh | sudo bash
 sudo docker compose --env-file .env -f docker-compose.deploy.yml up -d --force-recreate backend web --wait
 ```
 
@@ -51,10 +51,10 @@ sudo docker compose --env-file .env -f docker-compose.deploy.yml up -d --force-r
 ## 运维检查
 
 ```bash
-sudo systemctl status open-ai-canvas-updater
-sudo journalctl -u open-ai-canvas-updater -n 200 --no-pager
-sudo ls -lh /opt/open-ai-canvas/backups
-sudo sha256sum /opt/open-ai-canvas/backups/*.zip
+sudo systemctl status beeftv-updater
+sudo journalctl -u beeftv-updater -n 200 --no-pager
+sudo ls -lh /opt/beeftv/backups
+sudo sha256sum /opt/beeftv/backups/*.zip
 ```
 
 备份文件包含业务数据，应限制为 root 访问并纳入异机备份策略。数据卷本身不是备份。

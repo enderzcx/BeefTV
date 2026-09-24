@@ -7,7 +7,7 @@
 
 /* =========================================================================
    Design Token System — 三层架构 (Primitive → Semantic → Component)
-   详见 Wayfinder #96: https://github.com/ddcat-ai/open-ai-canvas/issues/96
+   这些是产品工作区的共享基础样式。
    规范：禁止在组件中新增裸 text-[Npx]/rounded-[Npx]/z-[N]，必须使用 token
    ========================================================================= */
 

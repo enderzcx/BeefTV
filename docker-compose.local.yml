@@ -1,6 +1,6 @@
 services:
   backend:
-    image: open-ai-canvas-backend:local
+    image: beeftv-backend:local
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -34,7 +34,7 @@ services:
             - data/
 
   web:
-    image: open-ai-canvas-web:local
+    image: beeftv-web:local
     build:
       context: .
       dockerfile: Dockerfile

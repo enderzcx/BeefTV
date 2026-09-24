@@ -2,12 +2,12 @@
 
 set -Eeuo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
-REPOSITORY="${REPOSITORY:-ddcat-ai/open-ai-canvas}"
-SOCKET_DIR="${CANVAS_UPDATER_SOCKET_DIR:-/run/open-ai-canvas-updater}"
-UPDATER_BIN="/usr/local/bin/open-ai-canvas-host-updater"
-UPDATER_ENV="/etc/open-ai-canvas-updater.env"
-UPDATER_SERVICE="/etc/systemd/system/open-ai-canvas-updater.service"
+INSTALL_DIR="${INSTALL_DIR:-/opt/beeftv}"
+REPOSITORY="${REPOSITORY:-glanderness/BeefTV}"
+SOCKET_DIR="${CANVAS_UPDATER_SOCKET_DIR:-/run/beeftv-updater}"
+UPDATER_BIN="/usr/local/bin/beeftv-host-updater"
+UPDATER_ENV="/etc/beeftv-updater.env"
+UPDATER_SERVICE="/etc/systemd/system/beeftv-updater.service"
 
 fail() {
     printf 'Host Updater 安装失败：%s\n' "$1" >&2
@@ -43,7 +43,7 @@ install_binary() {
         aarch64|arm64) arch="arm64" ;;
         *) fail "不支持的 CPU 架构：$(uname -m)" ;;
     esac
-    asset="open-ai-canvas-host-updater-linux-${arch}"
+    asset="beeftv-host-updater-linux-${arch}"
     temporary="$(mktemp)"
     checksum_file="$(mktemp)"
     curl -fsSL "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}" -o "$temporary"
@@ -78,7 +78,7 @@ ensure_token() {
 install_service() {
     local temporary_service
     install -d -m 0755 "$SOCKET_DIR"
-    install -d -m 0700 /var/lib/open-ai-canvas-updater "${INSTALL_DIR}/backups"
+    install -d -m 0700 /var/lib/beeftv-updater "${INSTALL_DIR}/backups"
     temporary_service="$(mktemp)"
     printf '%s\n' \
         '[Unit]' \
@@ -97,15 +97,15 @@ install_service() {
         'PrivateTmp=true' \
         'ProtectHome=true' \
         'ProtectSystem=full' \
-        "ReadWritePaths=${INSTALL_DIR} /var/lib/open-ai-canvas-updater ${SOCKET_DIR} /usr/local/bin" \
+        "ReadWritePaths=${INSTALL_DIR} /var/lib/beeftv-updater ${SOCKET_DIR} /usr/local/bin" \
         '' \
         '[Install]' \
         'WantedBy=multi-user.target' > "$temporary_service"
     install -m 0644 "$temporary_service" "$UPDATER_SERVICE"
     rm -f "$temporary_service"
     systemctl daemon-reload
-    systemctl enable --now open-ai-canvas-updater.service
-    systemctl restart open-ai-canvas-updater.service
+    systemctl enable --now beeftv-updater.service
+    systemctl restart beeftv-updater.service
 }
 
 main() {

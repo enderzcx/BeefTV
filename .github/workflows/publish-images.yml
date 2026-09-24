@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: open-ai-canvas-web
+          - image: beeftv-web
             dockerfile: Dockerfile
-          - image: open-ai-canvas-backend
+          - image: beeftv-backend
             dockerfile: backend/Dockerfile
 
     steps:
@@ -108,10 +108,10 @@ jobs:
         run: |
           mkdir -p ../dist
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "../dist/open-ai-canvas-host-updater-linux-$arch" ./cmd/host-updater
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "../dist/beeftv-host-updater-linux-$arch" ./cmd/host-updater
           done
           cd ../dist
-          sha256sum open-ai-canvas-host-updater-linux-* > SHA256SUMS
+          sha256sum beeftv-host-updater-linux-* > SHA256SUMS
 
       - name: Prepare release notes
         shell: bash
@@ -134,8 +134,8 @@ jobs:
             prerelease_args+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/open-ai-canvas-host-updater-linux-amd64 \
-            dist/open-ai-canvas-host-updater-linux-arm64 \
+            dist/beeftv-host-updater-linux-amd64 \
+            dist/beeftv-host-updater-linux-arm64 \
             dist/SHA256SUMS \
             docker-compose.deploy.yml \
             --verify-tag \

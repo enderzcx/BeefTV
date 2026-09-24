@@ -22,7 +22,7 @@ const (
 	maxOutboundHeaderCount   = 32
 	maxOutboundHeaderBytes   = 16 << 10
 	CustomRelayHeadersHeader = "X-Canvas-Upstream-Headers"
-	DefaultOutboundUserAgent = "BeefTV/1.0 (+https://github.com/ddcat-ai/open-ai-canvas)"
+	DefaultOutboundUserAgent = "BeefTV/1.0 (+https://github.com/glanderness/BeefTV)"
 )
 
 type OutboundHeader struct {
