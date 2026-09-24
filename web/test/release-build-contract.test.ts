@@ -26,10 +26,25 @@ describe("desktop release build contract", () => {
         expect(dockerfile).toContain("AS protocol-package-build");
         expect(dockerfile).not.toContain("payment-package");
         expect(dockerfile).not.toContain("verify-payment-packages.sh");
+        expect(dockerfile).not.toContain("migrate-schema");
+        expect(dockerfile).not.toContain("migrate-sqlite-postgres");
         expect(packageJson.scripts?.test).toContain("scripts/run-test-suite.mjs");
         const testRunner = readFileSync(resolve(root, "web/scripts/run-test-suite.mjs"), "utf8");
         expect(testRunner).toContain('source.includes("globalThis")');
         expect(testRunner).toContain("for (const file of isolated) run([file])");
+    });
+
+    test("keeps published deployment aligned with binaries present in public source", () => {
+        const workflow = readFileSync(resolve(root, ".github/workflows/publish-images.yml"), "utf8");
+        expect(workflow).not.toContain("cmd/host-updater");
+        expect(workflow).not.toContain("beeftv-host-updater");
+
+        for (const name of ["docker-compose.server.yml", "docker-compose.deploy.yml"]) {
+            const compose = readFileSync(resolve(root, name), "utf8");
+            expect(compose).toContain('CANVAS_AUTO_MIGRATE: "true"');
+            expect(compose).not.toContain("migrate-schema");
+            expect(compose).not.toMatch(/^\s{2}migrate:\s*$/m);
+        }
     });
 
     test("locks the release version and injects Go build metadata", () => {

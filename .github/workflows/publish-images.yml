@@ -96,26 +96,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-
-      - name: Build Host Updater
-        working-directory: backend
-        shell: bash
-        run: |
-          mkdir -p ../dist
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "../dist/beeftv-host-updater-linux-$arch" ./cmd/host-updater
-          done
-          cd ../dist
-          sha256sum beeftv-host-updater-linux-* > SHA256SUMS
-
       - name: Prepare release notes
         shell: bash
         run: |
+          mkdir -p dist
           version="$GITHUB_REF_NAME"
           awk -v heading="## $version" '
             $0 == heading { found=1; next }
@@ -134,9 +118,6 @@ jobs:
             prerelease_args+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/beeftv-host-updater-linux-amd64 \
-            dist/beeftv-host-updater-linux-arm64 \
-            dist/SHA256SUMS \
             docker-compose.deploy.yml \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \

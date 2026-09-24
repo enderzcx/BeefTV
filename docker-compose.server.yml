@@ -28,23 +28,6 @@ services:
       retries: 20
     restart: unless-stopped
 
-  migrate:
-    container_name: beeftv-migrate
-    image: beeftv-backend:server
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
-    command: ["migrate-schema", "up"]
-    environment:
-      CANVAS_BACKEND_DATA_DIR: /data
-      CANVAS_DATABASE_DRIVER: postgres
-      DATABASE_URL: ${DATABASE_URL:?必须配置 PostgreSQL 数据库连接}
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   backend:
     container_name: beeftv-backend
     image: beeftv-backend:server
@@ -56,7 +39,7 @@ services:
     environment:
       CANVAS_BACKEND_ADDR: ":8080"
       CANVAS_BACKEND_DATA_DIR: /data
-      CANVAS_AUTO_MIGRATE: "false"
+      CANVAS_AUTO_MIGRATE: "true"
       CANVAS_SHUTDOWN_TIMEOUT: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
       CANVAS_DATABASE_DRIVER: postgres
       DATABASE_URL: ${DATABASE_URL:?必须配置 PostgreSQL 数据库连接}
@@ -75,8 +58,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     restart: unless-stopped
     stop_grace_period: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
 

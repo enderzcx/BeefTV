@@ -1,12 +1,4 @@
 services:
-  migrate:
-    image: beeftv-backend:server
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-
   backend:
     image: beeftv-backend:server
     build:

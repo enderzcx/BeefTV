@@ -10,7 +10,6 @@ CANVAS_IMAGE_TAG="${REQUESTED_IMAGE_TAG:-latest}"
 CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG#v}"
 COMPOSE_FILE="docker-compose.deploy.yml"
 COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/glanderness/BeefTV/${REPOSITORY_REF}/${COMPOSE_FILE}}"
-UPDATER_INSTALL_URL="${UPDATER_INSTALL_URL:-https://raw.githubusercontent.com/glanderness/BeefTV/${REPOSITORY_REF}/scripts/install-host-updater.sh}"
 
 step() {
     printf '\n==> %s\n' "$1"
@@ -138,19 +137,6 @@ download_compose() {
     mv "$temporary_file" "$COMPOSE_FILE"
 }
 
-install_host_updater() {
-    if [[ "$CANVAS_IMAGE_TAG" == "latest" ]]; then
-        printf '\n提示：CANVAS_IMAGE_TAG=latest，已跳过在线更新器安装。固定到具体发布版本后可再次运行本脚本。\n'
-        return
-    fi
-    step "安装宿主机在线更新服务"
-    local installer
-    installer="$(mktemp)"
-    curl -fsSL "$UPDATER_INSTALL_URL" -o "$installer"
-    INSTALL_DIR="$INSTALL_DIR" bash "$installer"
-    rm -f "$installer"
-}
-
 start_services() {
     step "拉取并启动 GHCR 网页与后端镜像"
     if ! docker compose --env-file .env -f "$COMPOSE_FILE" pull; then
@@ -179,7 +165,6 @@ main() {
     login_ghcr
     prepare_environment
     download_compose
-    install_host_updater
     start_services
     print_result
 }
