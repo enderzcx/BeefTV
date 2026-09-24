@@ -136,14 +136,25 @@ export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id, false);
 }
 
-/** Timeline edits live on the canvas document. Local desktop restarts hydrate from SQLite, so that profile must PUT the Go repository without waiting on IndexedDB. Hosted keeps update plus an awaited flush. */
-export async function persistCanvasTimeline(id: string, timeline: NonNullable<CanvasProject["timeline"]>) {
-    useCanvasStore.getState().updateProject(id, { timeline });
+type CanvasDocumentPersistPatch = Partial<Pick<CanvasProject, "nodes" | "connections" | "timeline">>;
+
+/**
+ * Persist a canvas document patch before the caller reports success.
+ * Local desktop hydrates from SQLite, so that profile PUTs the Go repository
+ * without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
+ */
+export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
+    useCanvasStore.getState().updateProject(id, patch);
     if (isLocalWorkspaceMode()) {
         await syncLocalCanvasProjectToBackend(id);
         return;
     }
     await flushCanvasStorePersistence();
+}
+
+/** Timeline edits live on the canvas document. */
+export async function persistCanvasTimeline(id: string, timeline: NonNullable<CanvasProject["timeline"]>) {
+    await persistCanvasDocument(id, { timeline });
 }
 
 export function syncLocalCanvasGenerationProjectToBackend(id: string): Promise<void> {

@@ -186,3 +186,93 @@ describe("persistCanvasTimeline http", () => {
         expect(request.puts).toEqual([]);
     });
 });
+
+const originalAudioNode = {
+    id: "audio-original",
+    type: "audio",
+    title: "旁白",
+    position: { x: 0, y: 0 },
+    width: 320,
+    height: 120,
+    metadata: { storageKey: "resource:audio-owned", content: "http://127.0.0.1:3184/api/resources/audio-owned/file" },
+};
+const historyAudioNode = {
+    id: "audio-history",
+    type: "audio",
+    title: "历史音频",
+    position: { x: 360, y: 0 },
+    width: 320,
+    height: 120,
+    metadata: { storageKey: "resource:audio-owned", content: "http://127.0.0.1:3184/api/resources/audio-owned/file" },
+};
+
+describe("persistCanvasDocument http", () => {
+    it("PUTs history nodes to the desktop canvas route before returning", async () => {
+        store.resetProjects([{ ...project, timeline, nodes: [originalAudioNode] }]);
+        await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].path).toBe("/canvas-projects/canvas-a");
+        expect(request.puts[0].body.project.nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
+        expect(request.puts[0].body.project.nodes[1].metadata.storageKey).toBe("resource:audio-owned");
+        expect(request.puts[0].body.project.timeline.durationMs).toBe(5600);
+        expect(request.puts[0].body.project.timeline.clips[0].nodeId).toBe("7vvfM674HnenwTekmj88V");
+    });
+
+    it("does not PUT on the hosted profile", async () => {
+        mode.setLocalMode(false);
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        expect(request.puts).toEqual([]);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
+    });
+
+    it("local PUT is not blocked by a pending or rejected IndexedDB flush", async () => {
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        store.setFlushImpl(() => new Promise(() => {}));
+        await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].body.project.nodes).toHaveLength(2);
+        expect(store.flushCalls).toBe(1);
+
+        request.resetPuts();
+        store.resetFlush();
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        store.setFlushImpl(async () => {
+            throw new Error("IndexedDB hung");
+        });
+        await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].body.project.nodes[1].title).toBe("历史音频");
+    });
+
+    it("hosted profile still awaits flush and does not PUT", async () => {
+        mode.setLocalMode(false);
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        store.setFlushImpl(async () => {
+            throw new Error("IndexedDB hung");
+        });
+        let caught: unknown;
+        try {
+            await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        } catch (error) {
+            caught = error;
+        }
+        expect((caught as Error).message).toBe("IndexedDB hung");
+        expect(request.puts).toEqual([]);
+        expect(store.flushCalls).toBe(1);
+    });
+
+    it("rejects when the desktop PUT fails", async () => {
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        request.setPutError(new Error("画布保存失败，请重试"));
+        let caught: unknown;
+        try {
+            await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        } catch (error) {
+            caught = error;
+        }
+        expect((caught as Error).message).toBe("画布保存失败，请重试");
+        expect(request.puts).toEqual([]);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
+    });
+});

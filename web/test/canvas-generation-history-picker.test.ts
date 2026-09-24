@@ -36,6 +36,18 @@ describe("LibTV generation history picker", () => {
         expect(taskSync).toContain("reuseImageKey");
     });
 
+    test("persists the inserted node to the local canvas document before closing success", () => {
+        const insertStart = project.indexOf("const insertGenerationHistoryTask");
+        const insertEnd = project.indexOf("handleReplaceNodeReference", insertStart);
+        const insert = project.slice(insertStart, insertEnd);
+        expect(insert).toContain("await persistCanvasDocument(projectId, { nodes: nextNodes })");
+        expect(insert.indexOf("await persistCanvasDocument")).toBeGreaterThan(-1);
+        expect(insert.indexOf("await persistCanvasDocument")).toBeLessThan(insert.indexOf("setGenerationHistoryOpen(false)"));
+        expect(insert.indexOf("await persistCanvasDocument")).toBeLessThan(insert.indexOf('message.success("已从生成历史插入到画布")'));
+        expect(insert.indexOf("flushCanvasStorePersistence")).toBe(-1);
+        expect(insert.indexOf("saveCanvasProject")).toBe(-1);
+    });
+
     test("does not use audio or video file URLs as card image sources", () => {
         const audioUrl = "http://127.0.0.1:3184/api/resources/audio-owned/file";
         const audioTask = {

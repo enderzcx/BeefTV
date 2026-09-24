@@ -127,7 +127,7 @@ import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
-import { persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
+import { persistCanvasDocument, persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
 import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasOperationHistory } from "./use-canvas-operation-history";
@@ -1453,6 +1453,7 @@ function InfiniteCanvasPage() {
             const applied = await applyGenerationTaskResultToNodes([node], task, node.id);
             if (!applied.node) throw new Error("生成结果无法定位到画布节点");
             const nextNodes = [...nodesRef.current, applied.node];
+            await persistCanvasDocument(projectId, { nodes: nextNodes });
             nodesRef.current = nextNodes;
             setNodes(nextNodes);
             setSelectedNodeIds(new Set([applied.node.id]));
@@ -1461,7 +1462,7 @@ function InfiniteCanvasPage() {
         } catch (error) {
             message.error(error instanceof Error ? error.message : "生成结果无法插入画布");
         }
-    }, [getCanvasCenter, message, nodesRef, setNodes, setSelectedNodeIds]);
+    }, [getCanvasCenter, message, nodesRef, projectId, setNodes, setSelectedNodeIds]);
 
     const handleReplaceNodeReference = useCallback(
         (targetNodeId: string, oldReference: { id: string; nodeId?: string; label?: string; title?: string }, sourceNodeId: string) => {
