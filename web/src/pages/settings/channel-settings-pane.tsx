@@ -104,7 +104,7 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
                 const modelProfiles = patch.modelProfiles !== undefined
                     ? patch.modelProfiles
                     : patch.models && channel.scope !== "system"
-                        ? ensureModelProfilesWithUiDefaults(models, channel.modelProfiles)
+                        ? ensureModelProfilesWithUiDefaults(models, channel.modelProfiles, [], channel.apiFormat)
                         : patch.models
                             ? channel.modelProfiles?.filter((item) => models.includes(item.model))
                             : channel.modelProfiles;

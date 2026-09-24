@@ -80,4 +80,22 @@ describe("manual channel protocol defaults", () => {
         expect(inferProtocolCapabilityFromModel("gpt-image-1")).toBe("image");
         expect(defaultProtocolForModel("gpt-image-1")).toBe("openai-image");
     });
+
+    test("Gemini channels keep apiFormat and do not invent Chat Completions", () => {
+        const channel = createModelChannel({
+            id: "reasoning",
+            name: "Reasoning",
+            baseUrl: "https://reasoning.example/v1",
+            apiKey: "synthetic-test-key",
+            apiFormat: "gemini",
+            models: ["reasoner"],
+            modelProfiles: [{ model: "reasoner", capability: "text", billingMode: "fixed_request", unitPriceMicrocredits: 0 }],
+        });
+        const resolved = resolveModelRequestConfig({ ...defaultConfig, channels: [channel], model: "reasoning::reasoner", textModel: "reasoning::reasoner" }, "reasoning::reasoner");
+        expect(resolved.apiFormat).toBe("gemini");
+        expect(resolved.interfaceType).toBeUndefined();
+        expect(ensureModelProfilesWithUiDefaults(["reasoner"], [{ model: "reasoner", capability: "text" }], [], "gemini")).toEqual([
+            expect.objectContaining({ model: "reasoner", capability: "text", protocol: undefined }),
+        ]);
+    });
 });

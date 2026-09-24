@@ -97,19 +97,24 @@ export function defaultProtocolForModel(model: string, availableProtocols: Model
     return defaultProtocolForCapability(inferProtocolCapabilityFromModel(model), availableProtocols);
 }
 
+export function usesOpenAICompatibleProtocolDefault(apiFormat?: string) {
+    return apiFormat !== "gemini" && apiFormat !== "claude";
+}
+
 type ChannelModelProfile = NonNullable<ModelChannel["modelProfiles"]>[number];
 
 export function ensureModelProfilesWithUiDefaults(
     models: string[],
     profiles: Array<Omit<ChannelModelProfile, "capability"> & { capability?: ProtocolCapability }> | undefined,
     availableProtocols: ModelProtocolDefinition[] = [],
+    apiFormat?: string,
 ): ChannelModelProfile[] {
     const byModel = new Map((profiles || []).filter((item) => models.includes(item.model)).map((item) => [item.model, item]));
     return models.map((model) => {
         const current = byModel.get(model);
         if (current?.protocol && current.capability) return { ...current, capability: current.capability, protocol: current.protocol };
         const capability = current?.capability || modelProtocolCapability(current?.protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
-        const protocol = current?.protocol || defaultProtocolForCapability(capability, availableProtocols);
+        const protocol = current?.protocol || (usesOpenAICompatibleProtocolDefault(apiFormat) ? defaultProtocolForCapability(capability, availableProtocols) : undefined);
         return { ...current, model, capability, protocol };
     });
 }
