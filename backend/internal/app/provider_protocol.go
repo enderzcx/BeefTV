@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/protocol"
 
 	"github.com/google/uuid"
@@ -186,6 +187,10 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			resolution = declared
 		}
 	}
+	aspectRatio := strings.TrimSpace(input.Config.Size)
+	if input.Mode == "image" {
+		aspectRatio = protocolImageAspectRatio(input)
+	}
 	request := protocol.GenerationRequest{
 		Capability:    protocol.Capability(input.Mode),
 		Model:         input.Config.Model,
@@ -194,7 +199,7 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Images:        protocolImageReferences(input),
 		Videos:        protocolMediaReferences(input.ReferenceVideos, "video"),
 		Audios:        protocolMediaReferences(input.ReferenceAudios, "audio"),
-		AspectRatio:   input.Config.Size,
+		AspectRatio:   aspectRatio,
 		Resolution:    resolution,
 		Quality:       input.Config.Quality,
 		GenerateAudio: parseBool(input.Config.VideoGenerateAudio, false),
@@ -243,6 +248,21 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		}
 	}
 	return request
+}
+
+// protocolImageAspectRatio keeps the canvas size for protocol AspectRatio unless
+// the capability field is size and the adapter copies that value onto body.size
+// with no ratio table of its own (openai-images).
+func protocolImageAspectRatio(input canvasGenerationInput) string {
+	raw := strings.TrimSpace(input.Config.Size)
+	key, value := imageSizeParameter(input.ImageCapability, input.Config.Size)
+	if key != "size" || value == "" {
+		return raw
+	}
+	if strings.TrimSpace(input.Config.InterfaceType) != string(model.ChannelInterfaceOpenAIImage) {
+		return raw
+	}
+	return value
 }
 
 func protocolImageReferences(input canvasGenerationInput) []protocol.MediaReference {

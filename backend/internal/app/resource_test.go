@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -281,5 +282,41 @@ func TestLocalGeneratedMediaIsPersistedAsLocalResource(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(svc.dataDir, "resources", filepath.FromSlash(resource.ObjectKey))); err != nil {
 		t.Fatalf("local generated file missing: %v", err)
+	}
+}
+
+func TestPersistGeneratedVideoRepairsMissingDimensionsAndDuration(t *testing.T) {
+	svc := newResourceTestService(t)
+	svc.localResourceStorage = true
+	clip := syntheticVideoMP4(1280, 720, 5042)
+	result, err := svc.persistGeneratedMediaResult("user-1", map[string]interface{}{
+		"mode": "video",
+		"video": map[string]interface{}{
+			"dataUrl":  "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(clip),
+			"mimeType": "video/mp4",
+			"width":    0,
+			"height":   0,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	video, ok := result["video"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("video = %#v", result["video"])
+	}
+	if intValue(video["width"]) != 1280 || intValue(video["height"]) != 720 {
+		t.Fatalf("result dimensions = %#v", video)
+	}
+	if int64(intValue(video["durationMs"])) != 5042 {
+		t.Fatalf("result durationMs = %#v, want 5042", video["durationMs"])
+	}
+	resourceID := strings.TrimPrefix(stringField(video, "storageKey"), "resource:")
+	resource, err := svc.repo.ResourceForUser("user-1", resourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.Width != 1280 || resource.Height != 720 || resource.DurationMs != 5042 {
+		t.Fatalf("resource media = %#v", resource)
 	}
 }
