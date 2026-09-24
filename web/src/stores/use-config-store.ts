@@ -528,13 +528,19 @@ function isImageModelName(model: string) {
     );
 }
 
+function isTranscriptionModelName(model: string) {
+    const value = modelOptionName(model).toLowerCase();
+    return value.includes("asr") || value.includes("transcri") || value.includes("whisper") || /(^|[^a-z])stt([^a-z]|$)/.test(value);
+}
+
 function isAudioModelName(model: string) {
+    if (isTranscriptionModelName(model)) return false;
     const value = modelOptionName(model).toLowerCase();
     return value.includes("audio") || value.includes("tts") || value.includes("speech") || value.includes("voice") || value.includes("music") || value.includes("sound");
 }
 
 function isTextModelName(model: string) {
-    return !isImageModelName(model) && !isVideoModelName(model) && !isAudioModelName(model);
+    return !isImageModelName(model) && !isVideoModelName(model) && !isAudioModelName(model) && !isTranscriptionModelName(model);
 }
 
 export function modelMatchesCapability(model: string, capability?: ModelCapability) {
@@ -788,6 +794,21 @@ function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
             capability: "text",
             protocol: current?.protocol || "chat-completion",
         });
+    }
+    for (const model of models.filter(isAudioModelName)) {
+        const current = existing.get(model);
+        existing.set(model, {
+            ...(current || {}),
+            model,
+            capability: "audio",
+            protocol: current?.protocol && modelProtocolCapability(current.protocol) === "audio" ? current.protocol : "openai-audio",
+        });
+    }
+    for (const model of models.filter(isTranscriptionModelName)) {
+        const current = existing.get(model);
+        if (!current) continue;
+        const { protocol: _protocol, capability: _capability, capabilityConfig: _capabilityConfig, ...rest } = current;
+        existing.set(model, { ...rest, model });
     }
     for (const model of models.filter(isVideoModelName)) {
         const current = existing.get(model);

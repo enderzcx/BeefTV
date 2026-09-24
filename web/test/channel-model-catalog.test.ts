@@ -89,6 +89,47 @@ describe("public channel model catalog", () => {
         expect(resolveModelRequestConfig(normalized, "beefapi::gpt-5.6-sol").interfaceType).toBe("chat-completion");
     });
 
+    test("maps BeefAPI speech and music to audio without treating ASR as chat or TTS", () => {
+        const catalog: ChannelModelCatalogItem[] = [
+            { id: "gpt-5.6-sol", modelType: "text", supportedEndpointTypes: ["openai"] },
+            { id: "gpt-image-2", modelType: "image", supportedEndpointTypes: ["image-generation"] },
+            { id: "seedance-2.0", modelType: "video", supportedEndpointTypes: ["openai-video"] },
+            { id: "minimax-speech-2.8-hd", supportedEndpointTypes: ["openai"] },
+            { id: "minimax-speech-2.8-turbo", supportedEndpointTypes: ["openai"] },
+            { id: "minimax-music-v3.0", supportedEndpointTypes: ["openai"] },
+            { id: "hy-asr-3.0-preview", supportedEndpointTypes: ["openai"] },
+        ];
+        const channel = createModelChannel({
+            id: "beefapi",
+            name: "BeefAPI",
+            pinned: true,
+            baseUrl: "https://enterprise.beefapi.com",
+            models: catalog.map((item) => item.id),
+            modelProfiles: [
+                { model: "minimax-speech-2.8-hd", capability: "text", protocol: "chat-completion" },
+                { model: "hy-asr-3.0-preview", capability: "text", protocol: "chat-completion" },
+            ],
+        });
+        const merged = { ...channel, modelProfiles: mergeFetchedChannelModelProfiles(channel, catalog) };
+        const normalized = normalizeConfigSnapshot({
+            config: { ...defaultConfig, channels: [merged], imageModel: "beefapi::gpt-image-2", videoModel: "beefapi::seedance-2.0", textModel: "beefapi::gpt-5.6-sol" },
+        }).config;
+
+        expect(selectableModelsByCapability(normalized, "audio").map((model) => model.split("::").pop())).toEqual([
+            "minimax-speech-2.8-hd",
+            "minimax-speech-2.8-turbo",
+            "minimax-music-v3.0",
+        ]);
+        expect(selectableModelsByCapability(normalized, "text").map((model) => model.split("::").pop())).toEqual(["gpt-5.6-sol"]);
+        expect(selectableModelsByCapability(normalized, "image").map((model) => model.split("::").pop())).toEqual(["gpt-image-2"]);
+        expect(selectableModelsByCapability(normalized, "video").some((model) => model.includes("seedance-2.0"))).toBe(true);
+        expect(normalized.audioModel).toContain("minimax-speech-2.8-hd");
+        expect(resolveModelRequestConfig(normalized, "beefapi::minimax-speech-2.8-hd").interfaceType).toBe("openai-audio");
+        expect(resolveModelRequestConfig(normalized, "beefapi::minimax-music-v3.0").interfaceType).toBe("openai-audio");
+        expect(merged.modelProfiles?.find((item) => item.model === "hy-asr-3.0-preview")?.protocol).toBeUndefined();
+        expect(merged.modelProfiles?.find((item) => item.model === "hy-asr-3.0-preview")?.capability).toBeUndefined();
+    });
+
     test("preserves an explicitly configured BeefAPI text protocol", () => {
         const channel = createModelChannel({
             id: "beefapi",

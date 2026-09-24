@@ -114,15 +114,16 @@ func catalogProtocol(model CatalogModel) string {
 }
 
 func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol string) {
-	switch strings.ToLower(strings.TrimSpace(model.ModelType)) {
-	case "text", "image", "video", "audio":
-		capability = strings.ToLower(strings.TrimSpace(model.ModelType))
-	}
+	id := strings.ToLower(strings.TrimSpace(model.ID))
+	modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
 	endpoints := make([]string, 0, len(model.SupportedEndpointTypes))
 	for _, endpoint := range model.SupportedEndpointTypes {
 		if item := strings.ToLower(strings.TrimSpace(endpoint)); item != "" {
 			endpoints = append(endpoints, item)
 		}
+	}
+	if catalogIsTranscription(id, endpoints) {
+		return "", ""
 	}
 	type mapping struct {
 		capability string
@@ -132,23 +133,44 @@ func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol stri
 	for _, item := range []mapping{
 		{capability: "image", protocol: "openai-image", endpoints: []string{"image-generation", "images", "images.generations"}},
 		{capability: "video", protocol: "openai-videos", endpoints: []string{"openai-video", "videos", "videos.generations"}},
-		{capability: "audio", protocol: "openai-audio", endpoints: []string{"audio", "audio.speech"}},
+		{capability: "audio", protocol: "openai-audio", endpoints: []string{"audio.speech", "audio-speech"}},
 		{capability: "text", protocol: "openai-response", endpoints: []string{"openai-response", "openai-response-compact", "responses"}},
 		{capability: "text", protocol: "claude-api", endpoints: []string{"anthropic", "messages"}},
 		{capability: "text", protocol: "google-gemini-generate-content", endpoints: []string{"gemini"}},
-		{capability: "text", protocol: "chat-completion", endpoints: []string{"openai", "chat.completions"}},
 	} {
-		if !containsAnyString(endpoints, item.endpoints) {
-			continue
-		}
-		if capability == "" {
-			capability = item.capability
-		}
-		if protocol == "" && (capability == item.capability || capability == "") {
-			protocol = item.protocol
+		if containsAnyString(endpoints, item.endpoints) {
+			return item.capability, item.protocol
 		}
 	}
-	return capability, protocol
+	// BeefAPI /v1/models often lists speech/music with the generic "openai"
+	// chat endpoint type. Those models still speak POST /v1/audio/speech.
+	if catalogIsSpeechOrMusic(id) || modelType == "audio" {
+		return "audio", "openai-audio"
+	}
+	if containsAnyString(endpoints, []string{"openai", "chat.completions"}) || modelType == "text" {
+		return "text", "chat-completion"
+	}
+	switch modelType {
+	case "image":
+		return "image", "openai-image"
+	case "video":
+		return "video", "openai-videos"
+	}
+	return "", ""
+}
+
+func catalogIsTranscription(id string, endpoints []string) bool {
+	if containsAnyString(endpoints, []string{"audio.transcriptions", "audio-transcriptions", "transcriptions"}) {
+		return true
+	}
+	return strings.Contains(id, "asr") || strings.Contains(id, "transcri") || strings.Contains(id, "whisper") || strings.Contains(id, "stt")
+}
+
+func catalogIsSpeechOrMusic(id string) bool {
+	if catalogIsTranscription(id, nil) {
+		return false
+	}
+	return strings.Contains(id, "speech") || strings.Contains(id, "tts") || strings.Contains(id, "music")
 }
 
 func containsAnyString(values, candidates []string) bool {

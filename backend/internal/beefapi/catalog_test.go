@@ -8,23 +8,34 @@ import (
 
 func TestCatalogCapabilityMapsBeefAPIEndpointTypes(t *testing.T) {
 	cases := []struct {
+		id        string
+		modelType string
 		endpoints []string
 		wantCap   string
 		wantProto string
 	}{
-		{[]string{"openai"}, "text", "chat-completion"},
-		{[]string{"openai-response"}, "text", "openai-response"},
-		{[]string{"openai-response-compact"}, "text", "openai-response"},
-		{[]string{"anthropic"}, "text", "claude-api"},
-		{[]string{"gemini"}, "text", "google-gemini-generate-content"},
-		{[]string{"image-generation"}, "image", "openai-image"},
-		{[]string{"openai-video"}, "video", "openai-videos"},
-		{[]string{"openai", "image-generation"}, "image", "openai-image"},
+		{endpoints: []string{"openai"}, wantCap: "text", wantProto: "chat-completion"},
+		{endpoints: []string{"openai-response"}, wantCap: "text", wantProto: "openai-response"},
+		{endpoints: []string{"openai-response-compact"}, wantCap: "text", wantProto: "openai-response"},
+		{endpoints: []string{"anthropic"}, wantCap: "text", wantProto: "claude-api"},
+		{endpoints: []string{"gemini"}, wantCap: "text", wantProto: "google-gemini-generate-content"},
+		{endpoints: []string{"image-generation"}, wantCap: "image", wantProto: "openai-image"},
+		{endpoints: []string{"openai-video"}, wantCap: "video", wantProto: "openai-videos"},
+		{endpoints: []string{"openai", "image-generation"}, wantCap: "image", wantProto: "openai-image"},
+		{id: "gpt-5.6-sol", endpoints: []string{"openai"}, wantCap: "text", wantProto: "chat-completion"},
+		{id: "minimax-speech-2.8-hd", endpoints: []string{"openai"}, wantCap: "audio", wantProto: "openai-audio"},
+		{id: "minimax-speech-2.8-turbo", endpoints: []string{"openai"}, wantCap: "audio", wantProto: "openai-audio"},
+		{id: "minimax-music-v3.0", endpoints: []string{"openai"}, wantCap: "audio", wantProto: "openai-audio"},
+		{id: "minimax-speech-2.8-hd", endpoints: []string{"audio.speech"}, wantCap: "audio", wantProto: "openai-audio"},
+		{id: "hy-asr-3.0-preview", endpoints: []string{"openai"}, wantCap: "", wantProto: ""},
+		{id: "hy-asr-3.0-preview", endpoints: []string{"audio.transcriptions"}, wantCap: "", wantProto: ""},
+		{id: "gpt-image-2", endpoints: []string{"image-generation"}, wantCap: "image", wantProto: "openai-image"},
+		{id: "seedance-2.0", endpoints: []string{"openai-video"}, wantCap: "video", wantProto: "openai-videos"},
 	}
 	for _, test := range cases {
-		capability, protocol := catalogCapabilityAndProtocol(CatalogModel{SupportedEndpointTypes: test.endpoints})
+		capability, protocol := catalogCapabilityAndProtocol(CatalogModel{ID: test.id, ModelType: test.modelType, SupportedEndpointTypes: test.endpoints})
 		if capability != test.wantCap || protocol != test.wantProto {
-			t.Fatalf("%v -> capability=%q protocol=%q", test.endpoints, capability, protocol)
+			t.Fatalf("%s %v -> capability=%q protocol=%q, want %q %q", test.id, test.endpoints, capability, protocol, test.wantCap, test.wantProto)
 		}
 	}
 }

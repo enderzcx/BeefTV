@@ -61,13 +61,49 @@ export function sanitizeChannelModelCatalogItem(value: unknown): ChannelModelCat
     });
 }
 
+export function catalogModelMapping(item: Pick<ChannelModelCatalogItem, "id" | "modelType" | "supportedEndpointTypes">): {
+    capability?: ChannelModelProfile["capability"];
+    protocol?: ModelProtocol;
+    skipGeneration?: boolean;
+} {
+    const id = item.id.trim().toLowerCase();
+    const modelType = String(item.modelType || "").trim().toLowerCase();
+    const endpoints = (item.supportedEndpointTypes || []).map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (catalogIsTranscription(id, endpoints)) return { skipGeneration: true };
+    if (catalogIsSpeechOrMusic(id) || endpoints.some((endpoint) => endpoint === "audio.speech" || endpoint === "audio-speech") || modelType === "audio") {
+        return { capability: "audio", protocol: "openai-audio" };
+    }
+    return {};
+}
+
+function catalogIsTranscription(id: string, endpoints: string[]) {
+    if (endpoints.some((endpoint) => endpoint === "audio.transcriptions" || endpoint === "audio-transcriptions" || endpoint === "transcriptions")) return true;
+    return id.includes("asr") || id.includes("transcri") || id.includes("whisper") || id.includes("stt");
+}
+
+function catalogIsSpeechOrMusic(id: string) {
+    if (catalogIsTranscription(id, [])) return false;
+    return id.includes("speech") || id.includes("tts") || id.includes("music");
+}
+
 export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog: ChannelModelCatalogItem[]): ChannelModelProfile[] {
     const existingByModel = new Map((channel.modelProfiles || []).map((profile) => [profile.model, profile]));
     const next: ChannelModelProfile[] = [];
     for (const item of catalog) {
         const existing = existingByModel.get(item.id);
-        const inferredProtocol = protocolForModelCatalog(item.supportedEndpointTypes);
-        const inferredCapability = modelProtocolCapability(inferredProtocol) || item.modelType;
+        const mapped = catalogModelMapping(item);
+        const inferredProtocol = mapped.protocol || protocolForModelCatalog(item.supportedEndpointTypes);
+        const inferredCapability = mapped.capability || modelProtocolCapability(inferredProtocol) || item.modelType;
+        if (mapped.skipGeneration) {
+            if (existing) {
+                const rest = { ...existing };
+                delete rest.protocol;
+                delete rest.capability;
+                delete rest.capabilityConfig;
+                next.push({ ...rest, model: item.id, ...(item.displayName ? { displayName: item.displayName } : {}) });
+            }
+            continue;
+        }
         if (existing) {
             const protocol = inferredProtocol || existing.protocol;
             const capability = inferredCapability || existing.capability;
@@ -82,7 +118,7 @@ export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog:
                 ...existing,
                 ...(item.displayName ? { displayName: item.displayName } : {}),
                 capability,
-                ...(inferredProtocol ? { protocol: inferredProtocol } : {}),
+                ...(protocol ? { protocol } : {}),
                 ...(patchCapabilityConfig || capabilityChanged ? { capabilityConfig } : {}),
             });
             continue;
