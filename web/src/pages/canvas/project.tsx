@@ -127,7 +127,7 @@ import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
-import { refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
+import { persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
 import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasOperationHistory } from "./use-canvas-operation-history";
@@ -3522,7 +3522,7 @@ function InfiniteCanvasPage() {
                                     const currentTimeline = currentProject?.timeline;
                                     if (currentTimeline) {
                                         const next = syncNodeSubtitlesToTimeline(currentTimeline, nodeId, patch.subtitleEntries || []);
-                                        if (next !== currentTimeline) updateProject(projectId, { timeline: next });
+                                        if (next !== currentTimeline) void persistCanvasTimeline(projectId, next);
                                     }
                                 }}
                             />
@@ -3541,7 +3541,7 @@ function InfiniteCanvasPage() {
                                     setTimelineNodeId(null);
                                     setSubtitleNodeId(subNodeId);
                                 }}
-                                onSave={(next) => updateProject(projectId, { timeline: next })}
+                                onSave={(next) => persistCanvasTimeline(projectId, next)}
                                 onSaveSubtitles={(subNodeId, entries) =>
                                     handleConfigNodeChange(subNodeId, {
                                         subtitleEntries: entries,

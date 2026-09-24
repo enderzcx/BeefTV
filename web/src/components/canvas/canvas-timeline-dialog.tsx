@@ -36,7 +36,7 @@ type CanvasTimelineDialogProps = {
     timeline: TimelineProject | null;
     onClose: () => void;
     onOpenSubtitleDialog?: (nodeId: string) => void;
-    onSave: (timeline: TimelineProject) => void;
+    onSave: (timeline: TimelineProject) => void | Promise<void>;
     onSaveSubtitles: (nodeId: string, entries: SrtEntry[]) => void;
     /** 打开项目素材库选择器（由页面层接线） */
     onOpenAssetLibrary?: () => void;
@@ -455,7 +455,7 @@ export function CanvasTimelineDialog({
         for (const media of medias) addDirectMediaToTimeline(media);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         // 互通修复：时间线草稿只在打开时初始化，期间节点字幕可能在字幕弹窗中被清空（或节点数据被外部更新）。
         // 保存前以节点当前字幕为准做定向校准：节点字幕已为空时，剔除草稿残留的旧字幕片段并回写空数组，
         // 避免「清空后重开视频节点旧字幕复活」；节点仍有字幕时保留草稿内用户的时间线编辑（拖动/删减/文本）。
@@ -463,7 +463,12 @@ export function CanvasTimelineDialog({
         const base = normalizeTimelineProject({ ...draft, updatedAt: new Date().toISOString() });
         const reconciledClips = clearedSubtitleNodeIds.size ? base.clips.filter((clip) => !(clip.kind === "subtitle" && clearedSubtitleNodeIds.has(clip.nodeId))) : base.clips;
         const normalized = normalizeTimelineProject({ ...base, clips: reconciledClips });
-        onSave(normalized);
+        try {
+            await onSave(normalized);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "时间线保存失败，请重试");
+            return;
+        }
         // 整合方向：时间线字幕片段与节点字幕互通。保存时按视频节点回写 subtitleEntries（含空数组）。
         // 回写集合 = 项目时间线原有字幕节点 ∪ 校准后仍有字幕片段的节点 ∪ 节点当前仍有字幕数据的节点：
         // 覆盖“首次打开时间线（项目尚无 timeline）时删除字幕片段”这类 timeline 为空导致的漏回写，
@@ -624,7 +629,7 @@ export function CanvasTimelineDialog({
             </span>
             <div className="min-w-0">
                 <div className="truncate text-[var(--fs-heading-lg)] font-semibold leading-6 tracking-[-0.02em]">多轨时间线</div>
-                <div className="truncate text-xs opacity-45">第二期 · 轨道编辑与素材编排</div>
+                <div className="truncate text-xs opacity-45">轨道编辑与素材编排</div>
             </div>
         </div>
     );

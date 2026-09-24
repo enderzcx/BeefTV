@@ -135,6 +135,13 @@ export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id, false);
 }
 
+/** Timeline edits live on the canvas document. Desktop restarts hydrate from SQLite, so save must reach the Go repository, not only IndexedDB. */
+export async function persistCanvasTimeline(id: string, timeline: NonNullable<CanvasProject["timeline"]>) {
+    useCanvasStore.getState().updateProject(id, { timeline });
+    await flushCanvasStorePersistence();
+    await syncLocalCanvasProjectToBackend(id);
+}
+
 export function syncLocalCanvasGenerationProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id, true);
 }
