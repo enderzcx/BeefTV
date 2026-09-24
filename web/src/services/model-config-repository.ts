@@ -54,28 +54,13 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
             publish({ status: "saving", error: "" });
             try {
                 const result = await dependencies.write(config, state.revision);
-                if (savingGeneration !== generation) {
-                    if (!latestConfig) return;
-                    state = { status: "saved", revision: result.revision, dirty: true, error: "" };
-                    continue;
-                }
                 state = { status: "saved", revision: result.revision, dirty: generation !== savingGeneration, error: "" };
             } catch (error) {
                 if (isRevisionConflict(error)) {
                     try {
                         const current = await dependencies.read();
-                        if (savingGeneration !== generation) {
-                            if (!latestConfig) return;
-                            state = { ...state, revision: current.revision, status: "saving", dirty: true, error: "" };
-                            continue;
-                        }
                         state = { ...state, revision: current.revision, status: "saving", dirty: true, error: "" };
                         const retried = await dependencies.write(config, state.revision);
-                        if (savingGeneration !== generation) {
-                            if (!latestConfig) return;
-                            state = { status: "saved", revision: retried.revision, dirty: true, error: "" };
-                            continue;
-                        }
                         state = { status: "saved", revision: retried.revision, dirty: generation !== savingGeneration, error: "" };
                         continue;
                     } catch (retryError) {
@@ -106,31 +91,8 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
         return scheduleDrain();
     };
 
-    const reload = async () => {
-        generation += 1;
-        latestConfig = null;
-        publish({ status: "hydrating", dirty: false, error: "" });
-        try {
-            const result = await dependencies.read();
-            if (latestConfig) {
-                return result;
-            }
-            state = { status: "idle", revision: result.revision, dirty: false, error: "" };
-            listeners.forEach((listener) => listener(state));
-            return result;
-        } catch (error) {
-            publish({ status: "error", error: error instanceof Error ? error.message : "读取模型配置失败" });
-            throw error;
-        } finally {
-            hydrated = true;
-            resolveHydration?.();
-            resolveHydration = null;
-        }
-    };
-
     return {
         hydrate,
-        reload,
         commit,
         flush: scheduleDrain,
         getState: () => state,
@@ -163,7 +125,6 @@ const repository = createModelConfigRepository({
 });
 
 export const hydrateModelConfig = repository.hydrate;
-export const reloadModelConfig = repository.reload;
 export const commitModelConfig = repository.commit;
 export const flushModelConfig = repository.flush;
 export const getModelConfigPersistenceState = repository.getState;

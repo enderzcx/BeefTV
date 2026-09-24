@@ -75,7 +75,7 @@ func (s *Service) mcpListModels(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.appendLocalBeefAPIModels(catalog, intent), nil
+	return catalog, nil
 }
 
 func (s *Service) appendLocalBeefAPIModels(catalog any, intent *ModelRequestIntent) any {

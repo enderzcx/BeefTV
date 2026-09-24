@@ -291,22 +291,27 @@ func PreserveManagedChannel(incoming, existing map[string]any, managed bool) {
 	incomingChannels, _ := incoming["channels"].([]any)
 	existingChannels, _ := existing["channels"].([]any)
 	existingBeef := findChannel(existingChannels, ChannelID)
+	found := false
 	for index, raw := range incomingChannels {
 		channel, ok := raw.(map[string]any)
 		if !ok || channel["id"] != ChannelID {
 			continue
 		}
+		found = true
 		delete(channel, "deviceCode")
 		delete(channel, "device_code")
 		delete(channel, "encryptedApiKey")
+		if existingBeef != nil {
+			channel["models"] = existingBeef["models"]
+			channel["modelProfiles"] = existingBeef["modelProfiles"]
+			if baseURL, _ := existingBeef["baseUrl"].(string); strings.TrimSpace(baseURL) != "" {
+				channel["baseUrl"] = existingBeef["baseUrl"]
+			}
+		}
 		if managed {
 			channel["apiKey"] = ""
 			channel["secretKey"] = ""
 			channel["credentialRef"] = CredentialRef
-			if existingBeef != nil && len(mergeModelIDs(channel["models"], nil)) == 0 && len(mergeModelIDs(existingBeef["models"], nil)) > 0 {
-				channel["models"] = existingBeef["models"]
-				channel["modelProfiles"] = existingBeef["modelProfiles"]
-			}
 		} else if existingBeef != nil {
 			incomingKey, _ := channel["apiKey"].(string)
 			if incomingKey == "" || incomingKey == workspace.RedactedSecret {
@@ -322,6 +327,20 @@ func PreserveManagedChannel(incoming, existing map[string]any, managed bool) {
 			}
 		}
 		incomingChannels[index] = channel
+	}
+	if !found && existingBeef != nil {
+		cloned, err := cloneAnyMap(existingBeef)
+		if err == nil {
+			delete(cloned, "deviceCode")
+			delete(cloned, "device_code")
+			delete(cloned, "encryptedApiKey")
+			if managed {
+				cloned["apiKey"] = ""
+				cloned["secretKey"] = ""
+				cloned["credentialRef"] = CredentialRef
+			}
+			incomingChannels = append([]any{cloned}, incomingChannels...)
+		}
 	}
 	incoming["channels"] = incomingChannels
 }

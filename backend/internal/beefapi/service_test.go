@@ -677,6 +677,42 @@ func TestFrontendWriteCannotClobberManagedFields(t *testing.T) {
 	}
 }
 
+func TestPreserveManagedChannelKeepsServerInventoryAndManualProviders(t *testing.T) {
+	incoming := map[string]any{"channels": []any{
+		map[string]any{"id": "beefapi", "enabled": false, "apiKey": "from-ui", "models": []any{"stale-a", "stale-b"}, "modelProfiles": []any{map[string]any{"model": "stale-a"}}},
+		map[string]any{"id": "manual", "name": "工作室渠道", "apiKey": "keep-me", "models": []any{"local-image"}},
+	}}
+	existing := map[string]any{"channels": []any{
+		map[string]any{"id": "beefapi", "apiKey": "disk-secret", "baseUrl": "https://enterprise.beefapi.com", "models": []any{"enterprise-image"}, "modelProfiles": []any{map[string]any{"model": "enterprise-image", "capability": "image", "protocol": "openai-image"}}},
+		map[string]any{"id": "manual", "name": "旧名称", "apiKey": "disk-manual", "models": []any{"old-image"}},
+	}}
+	PreserveManagedChannel(incoming, existing, true)
+	beef := findChannel(incoming["channels"].([]any), "beefapi")
+	manual := findChannel(incoming["channels"].([]any), "manual")
+	if catalogSize(beef["models"]) != 1 || beef["models"].([]any)[0] != "enterprise-image" {
+		t.Fatalf("stale nonempty inventory replaced catalog: %#v", beef["models"])
+	}
+	if beef["apiKey"] != "" || beef["credentialRef"] != CredentialRef || beef["enabled"] != false {
+		t.Fatalf("managed credential/user fields: %#v", beef)
+	}
+	if beef["baseUrl"] != "https://enterprise.beefapi.com" {
+		t.Fatalf("managed base URL dropped: %#v", beef["baseUrl"])
+	}
+	if manual["name"] != "工作室渠道" || manual["apiKey"] != "keep-me" || catalogSize(manual["models"]) != 1 {
+		t.Fatalf("manual provider overwritten: %#v", manual)
+	}
+}
+
+func TestPreserveManagedChannelClearsStaleInventoryAfterDisconnect(t *testing.T) {
+	incoming := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "models": []any{"stale-a", "stale-b"}}}}
+	existing := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "models": []any{}, "modelProfiles": []any{}}}}
+	PreserveManagedChannel(incoming, existing, false)
+	channel := findChannel(incoming["channels"].([]any), "beefapi")
+	if catalogSize(channel["models"]) != 0 {
+		t.Fatalf("disconnected catalog restored from stale frontend: %#v", channel["models"])
+	}
+}
+
 func catalogSize(value any) int {
 	switch typed := value.(type) {
 	case []any:

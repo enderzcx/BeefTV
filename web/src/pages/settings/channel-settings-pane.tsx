@@ -11,7 +11,8 @@ import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapabilit
 import { ChannelModelSettings } from "./channel-model-settings";
 import { workspaceCapabilities } from "@/services/workspace-mode";
 import { localWorkspaceConfig } from "@/lib/user-session";
-import { getModelConfigPersistenceState, reloadModelConfig, subscribeModelConfigPersistence, type ModelConfigPersistenceState } from "@/services/model-config-repository";
+import { getLocalModelConfig } from "@/services/api/workspace";
+import { getModelConfigPersistenceState, subscribeModelConfigPersistence, type ModelConfigPersistenceState } from "@/services/model-config-repository";
 import { beefAPIConnectionLabel, cancelBeefAPIConnection, disconnectBeefAPIConnection, getBeefAPIConnection, openBeefAPIWallet, startBeefAPIConnection, type BeefAPIConnectionSummary } from "@/services/api/beefapi-connection";
 
 type UserChannelConnection = "openai" | "gemini";
@@ -34,10 +35,13 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
 
     const applyBeefConnection = async (summary: BeefAPIConnectionSummary, previousState = beefConnection?.state) => {
         setBeefConnection(summary);
-        if (!shouldReloadModelConfigForBeefAPI(previousState, summary.state)) return;
+        if (!shouldRefreshBeefAPICatalog(previousState, summary.state)) return;
         try {
-            const result = await reloadModelConfig();
-            replaceConfig(localWorkspaceConfig(normalizeConfigSnapshot({ config: result.config }).config));
+            const result = await getLocalModelConfig();
+            const current = useConfigStore.getState().config;
+            replaceConfig(localWorkspaceConfig(normalizeConfigSnapshot({
+                config: mergeManagedBeefAPICatalog(current, result.config),
+            }).config));
         } catch {
             // Keep the connection status even if the catalog refresh fails.
         }
@@ -520,9 +524,42 @@ function ChannelStatus({ channel, persistence, connection }: { channel: ModelCha
     );
 }
 
-export function shouldReloadModelConfigForBeefAPI(previous: string | undefined, next: string) {
+export function shouldRefreshBeefAPICatalog(previous: string | undefined, next: string) {
     if (next === "connected" && previous !== "connected") return true;
     return next === "disconnected" && Boolean(previous) && previous !== "disconnected";
+}
+
+export function mergeManagedBeefAPICatalog(current: AiConfig, server: AiConfig): AiConfig {
+    const serverBeef = server.channels.find((channel) => channel.id === "beefapi");
+    let found = false;
+    const channels = current.channels.map((channel) => {
+        if (channel.id !== "beefapi") return channel;
+        found = true;
+        if (!serverBeef) {
+            return { ...channel, models: [], modelProfiles: [], apiKey: "", secretKey: "", credentialRef: undefined, hasApiKey: false, hasSecretKey: false };
+        }
+        return {
+            ...channel,
+            models: [...(serverBeef.models || [])],
+            modelProfiles: (serverBeef.modelProfiles || []).map((item) => ({ ...item })),
+            apiKey: "",
+            secretKey: "",
+            credentialRef: serverBeef.credentialRef,
+            hasApiKey: serverBeef.hasApiKey,
+            hasSecretKey: serverBeef.hasSecretKey,
+            baseUrl: serverBeef.baseUrl || channel.baseUrl,
+        };
+    });
+    if (serverBeef && !found) {
+        channels.unshift({
+            ...serverBeef,
+            apiKey: "",
+            secretKey: "",
+            models: [...(serverBeef.models || [])],
+            modelProfiles: (serverBeef.modelProfiles || []).map((item) => ({ ...item })),
+        });
+    }
+    return withChannels(current, channels);
 }
 
 export function modelConfigChannelStatusLabel(channel: ModelChannel, persistence: ModelConfigPersistenceState, connection?: BeefAPIConnectionSummary | null) {
