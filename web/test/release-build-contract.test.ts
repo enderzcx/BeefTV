@@ -17,6 +17,18 @@ describe("desktop release build contract", () => {
         expect(workflow).not.toContain("verify-payment-packages.sh");
     });
 
+    test("keeps public container builds independent from removed payment artifacts", () => {
+        const dockerfile = readFileSync(resolve(root, "backend/Dockerfile"), "utf8");
+        const packageJson = JSON.parse(readFileSync(resolve(root, "web/package.json"), "utf8")) as {
+            scripts?: Record<string, string>;
+        };
+
+        expect(dockerfile).toContain("AS protocol-package-build");
+        expect(dockerfile).not.toContain("payment-package");
+        expect(dockerfile).not.toContain("verify-payment-packages.sh");
+        expect(packageJson.scripts?.test).toContain("--max-concurrency=1");
+    });
+
     test("locks the release version and injects Go build metadata", () => {
         const script = readFileSync(resolve(root, "scripts/build-beeftv-release.sh"), "utf8");
         const version = readFileSync(resolve(root, "VERSION"), "utf8").trim();
