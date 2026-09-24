@@ -1771,8 +1771,8 @@ func TestSeedancePollStatusUsesBeefAPINestedGenerationState(t *testing.T) {
 		"status": "in_progress",
 		"metadata": map[string]interface{}{
 			"generation_status": "completed",
-			"stage":              "saving",
-			"url":                "https://beefapi.com/v1/videos/task/content",
+			"stage":             "saving",
+			"url":               "https://beefapi.com/v1/videos/task/content",
 		},
 	})
 	if status != "completed" || videoURL != "https://beefapi.com/v1/videos/task/content" {
