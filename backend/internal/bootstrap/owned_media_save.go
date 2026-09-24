@@ -16,7 +16,11 @@ import (
 )
 
 const maxSaveFileNameBytes = 180
-const maxOwnedArtifactBytes = 256 << 20
+
+// Wails v2 JSON-unmarshals []byte from a base64 string. JS strings are UTF-16,
+// so 32MiB raw is about 43MiB base64 and ~86MiB of string memory plus the
+// original ArrayBuffer and the IPC copy. Larger caps still risk the WebView.
+const maxOwnedArtifactBytes = 32 << 20
 
 func (r *Runtime) CopyOwnedResourceTo(resourceID, destPath string) error {
 	if r == nil || r.service == nil {
@@ -123,24 +127,12 @@ func rejectSameFile(src *os.File, dest string) error {
 }
 
 func replaceFile(tmpPath, dest string) error {
-	if err := os.Rename(tmpPath, dest); err == nil {
-		return nil
-	} else if runtime.GOOS != "windows" {
-		return errors.New("无法保存到所选位置")
-	}
-	if _, err := os.Stat(dest); err != nil {
-		return errors.New("无法保存到所选位置")
-	}
-	backup := dest + ".beeftv-old"
-	_ = os.Remove(backup)
-	if err := os.Rename(dest, backup); err != nil {
-		return errors.New("无法保存到所选位置")
-	}
+	// On Windows, os.Rename uses MoveFileEx with MOVEFILE_REPLACE_EXISTING
+	// (Go 1.5+). Do not delete dest+suffix or swap through a sidecar: that can
+	// erase an unrelated user file and leave dest missing if restore fails.
 	if err := os.Rename(tmpPath, dest); err != nil {
-		_ = os.Rename(backup, dest)
 		return errors.New("无法保存到所选位置")
 	}
-	_ = os.Remove(backup)
 	return nil
 }
 

@@ -151,6 +151,67 @@ func TestWriteOwnedArtifactRejectsOversizedPayload(t *testing.T) {
 	}
 }
 
+func TestReplaceFileLeavesAdjacentOldFileAlone(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "keep.bin")
+	adjacent := dest + ".beeftv-old"
+	tmp := filepath.Join(dir, ".beeftv-save-x")
+	if err := os.WriteFile(dest, []byte("ORIGINAL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(adjacent, []byte("USER-OLD"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, []byte("NEXT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceFile(tmp, dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "NEXT" {
+		t.Fatalf("dest = %q", got)
+	}
+	old, err := os.ReadFile(adjacent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(old) != "USER-OLD" {
+		t.Fatalf("adjacent = %q", old)
+	}
+}
+
+func TestReplaceFileFailurePreservesOriginalAndAdjacentOld(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "keep.bin")
+	adjacent := dest + ".beeftv-old"
+	if err := os.Mkdir(dest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(adjacent, []byte("USER-OLD"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := writeOwnedFileAtomically(dest, strings.NewReader("NEXT"), nil)
+	if err == nil {
+		t.Fatal("expected replace of a directory to fail")
+	}
+	info, err := os.Stat(dest)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("dest should still be the original directory: %v", err)
+	}
+	old, err := os.ReadFile(adjacent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(old) != "USER-OLD" {
+		t.Fatalf("adjacent = %q", old)
+	}
+	assertNoSaveTemps(t, dir)
+}
+
 func assertNoSaveTemps(t *testing.T, dir string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

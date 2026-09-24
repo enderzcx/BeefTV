@@ -87,20 +87,27 @@ describe("native media save", () => {
         const helper = readFileSync(resolve(import.meta.dir, "../src/services/desktop-media-save.ts"), "utf8");
         expect(helper).toContain("saveAs(browserUrl, fileName)");
         expect(helper).toContain("SaveOwnedArtifact");
+        expect(helper).toContain("bytesToBase64");
+        expect(helper).not.toContain("Array.from(bytes)");
+        expect(helper).toContain("32 * 1024 * 1024");
         expect(readFileSync(resolve(import.meta.dir, "../src/lib/canvas/canvas-export.ts"), "utf8")).toContain("saveOwnedOrBrowserBlob");
         expect(readFileSync(resolve(import.meta.dir, "../src/pages/assets/asset-transfer.ts"), "utf8")).toContain("saveOwnedOrBrowserBlob");
         expect(readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-timeline-dialog.tsx"), "utf8")).toContain("saveAs(blob");
+        const saveGo = readFileSync(resolve(import.meta.dir, "../../backend/internal/bootstrap/owned_media_save.go"), "utf8");
+        expect(saveGo).toContain("os.Rename(tmpPath, dest)");
+        expect(saveGo).not.toContain(".beeftv-old");
+        expect(saveGo).toContain("32 << 20");
     });
 
     test("native ZIP artifacts use the bounded Wails save binding", async () => {
-        const calls: Array<[string, number[]]> = [];
+        const calls: Array<[string, string]> = [];
         Object.assign(globalThis, {
             window: {
                 location: { protocol: "wails:" },
                 go: {
                     main: {
                         DesktopApp: {
-                            SaveOwnedArtifact: async (fileName: string, data: number[]) => {
+                            SaveOwnedArtifact: async (fileName: string, data: string) => {
                                 calls.push([fileName, data]);
                                 return true;
                             },
@@ -112,6 +119,6 @@ describe("native media save", () => {
         const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "application/zip" });
         expect(await saveOwnedOrBrowserBlob("画布.zip", blob)).toBe("saved");
         expect(calls[0]?.[0]).toBe("画布.zip");
-        expect(calls[0]?.[1]).toEqual([1, 2, 3]);
+        expect(calls[0]?.[1]).toBe("AQID");
     });
 });

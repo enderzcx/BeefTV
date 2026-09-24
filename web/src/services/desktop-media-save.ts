@@ -4,7 +4,7 @@ import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 
 export type OwnedMediaSaveResult = "saved" | "cancelled";
 
-export const MAX_OWNED_ARTIFACT_BYTES = 256 * 1024 * 1024;
+export const MAX_OWNED_ARTIFACT_BYTES = 32 * 1024 * 1024;
 
 export function isWailsNativeShell() {
     if (typeof window === "undefined") return false;
@@ -40,11 +40,22 @@ export async function saveOwnedOrBrowserBlob(fileName: string, blob: Blob): Prom
         const save = window.go?.main?.DesktopApp?.SaveOwnedArtifact;
         if (!save) throw new Error("当前应用还不能把文件存到所选位置");
         const bytes = new Uint8Array(await blob.arrayBuffer());
-        const saved = await save(name, Array.from(bytes));
+        const saved = await save(name, bytesToBase64(bytes));
         return saved ? "saved" : "cancelled";
     }
     saveAs(blob, name);
     return "saved";
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+    const toBase64 = (bytes as Uint8Array & { toBase64?: () => string }).toBase64;
+    if (typeof toBase64 === "function") return toBase64.call(bytes);
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
 }
 
 export function reportOwnedMediaSave(
