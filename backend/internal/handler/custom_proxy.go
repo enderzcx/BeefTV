@@ -80,7 +80,7 @@ func proxyCustomRelayRequestWithService(c *gin.Context, policy app.RuntimeReques
 		}
 	}
 	if svc != nil {
-		resolved, resolveErr := svc.ResolveCustomRelayAPIKey(target.Hostname(), apiKey)
+		resolved, resolveErr := svc.ResolveCustomRelayAPIKey(target.String(), apiKey)
 		if resolveErr != nil {
 			failService(c, resolveErr)
 			return

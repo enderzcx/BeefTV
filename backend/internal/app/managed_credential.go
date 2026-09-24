@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 
 	"infinite-canvas/backend/internal/beefapi"
@@ -137,27 +138,36 @@ func (s *Service) resolveChannelModelsRequest(input *ChannelModelsRequest) error
 	return nil
 }
 
-func (s *Service) ResolveCustomRelayAPIKey(targetHost, incoming string) (string, error) {
-	return s.resolveCustomRelayKey(targetHost, incoming)
+func (s *Service) ResolveCustomRelayAPIKey(targetURL, incoming string) (string, error) {
+	return s.resolveCustomRelayKey(targetURL, incoming)
 }
 
-func (s *Service) resolveCustomRelayKey(targetHost, incoming string) (string, error) {
-	if !isManagedBeefAPIRelayHost(targetHost) {
+func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, error) {
+	// An unrelated custom channel must remain usable even if the managed
+	// connection is revoked. Resolve its secret only for the bound origin.
+	if s.beefAPI != nil && s.beefAPI.HasManagedCredential() && !sameCredentialOrigin(targetURL, s.beefAPI.Origin()) {
 		return incoming, nil
 	}
-	apiKey, _, _, _, err := s.lookupBeefAPICredential()
+	apiKey, baseURL, _, _, err := s.lookupBeefAPICredential()
 	if err != nil {
 		return "", err
 	}
-	if apiKey == "" {
+	if apiKey == "" || !sameCredentialOrigin(targetURL, baseURL) {
 		return incoming, nil
 	}
 	return apiKey, nil
 }
 
-func isManagedBeefAPIRelayHost(host string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	return host == "enterprise.beefapi.com" || strings.HasPrefix(host, "127.0.0.1") || host == "localhost"
+func sameCredentialOrigin(targetURL, baseURL string) bool {
+	target, targetErr := url.Parse(strings.TrimSpace(targetURL))
+	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
+	if targetErr != nil || baseErr != nil || target.User != nil || base.User != nil || target.Host == "" || base.Host == "" {
+		return false
+	}
+	if target.Scheme != "https" && target.Scheme != "http" {
+		return false
+	}
+	return strings.EqualFold(target.Scheme, base.Scheme) && strings.EqualFold(target.Host, base.Host)
 }
 
 func (s *Service) noteBeefAPIProviderError(message string) {
