@@ -862,6 +862,9 @@ func resourceFileExtension(fileName string, mimeType string, kind string) string
 	if extensions, err := mime.ExtensionsByType(cleanMimeType); err == nil && len(extensions) > 0 {
 		return strings.ToLower(extensions[0])
 	}
+	if mapped := extensionFromMimeType(cleanMimeType); mapped != "bin" {
+		return "." + mapped
+	}
 	switch kind {
 	case "image":
 		return ".png"

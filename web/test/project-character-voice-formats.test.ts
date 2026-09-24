@@ -27,5 +27,7 @@ describe("角色声音格式", () => {
         expect(audioFileExtension("audio/mp4", "sample.m4a")).toBe("m4a");
         expect(audioFileExtension("audio/ogg", "sample.opus")).toBe("opus");
         expect(audioFileExtension("audio/wav")).toBe("wav");
+        expect(audioFileExtension("audio/wave")).toBe("wav");
+        expect(audioFileExtension("audio/vnd.wave")).toBe("wav");
     });
 });

@@ -320,3 +320,11 @@ func TestPersistGeneratedVideoRepairsMissingDimensionsAndDuration(t *testing.T) 
 		t.Fatalf("resource media = %#v", resource)
 	}
 }
+
+func TestResourceFileExtensionMapsWaveMIMEAliasesToWav(t *testing.T) {
+	for _, mimeType := range []string{"audio/wave", "audio/wav", "audio/x-wav", "audio/vnd.wave"} {
+		if got := resourceFileExtension("", mimeType, "audio"); got != ".wav" {
+			t.Fatalf("resourceFileExtension(%q) = %q, want .wav", mimeType, got)
+		}
+	}
+}
