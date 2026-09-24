@@ -1,7 +1,8 @@
 // 视频片段处理（裁切/提音轨）的 ffmpeg 参数构造，纯函数便于单测。
-// -ss 必须放在 -i 之后（输出 seek）：放在 -i 之前是输入 seek，MP4/H.264 只会定位到目标时间戳
-// 之前最近的关键帧，切点会偏移最多一个 GOP（常见 0.5-2s）、片尾被 -t 截掉、音视频在切点处错位；
-// 本流程已 -c:v libx264 重编码，输出 seek 帧精确，代价只是多解码。
+// 精确裁切：-ss 放在 -i 之后并重编码。输入 seek + stream copy 只会落到关键帧，
+// 任意部分区间不能靠 -c:v copy 保证切点。
+// 整段去音：不要带 -ss/-t 的输出 seek copy。MP4 在 ss=0 时仍可能写出无 mdat 的空文件。
+// 用 -map 0:V:0 跳过 attached pic。
 
 export const SEGMENT_INPUT_NAME = "segment-input.mp4";
 export const SEGMENT_OUTPUT_NAME = "segment-output.mp4";
@@ -26,11 +27,47 @@ export function buildCopyAudioArgs(startSec: string, durationSec: string, output
     return ["-i", SEGMENT_INPUT_NAME, "-ss", startSec, "-t", durationSec, "-map", "0:a:0?", "-vn", "-c:a", "copy", "-movflags", "+faststart", outputName];
 }
 
-/** 去掉原视频音轨并重编码画面，避免输出 seek 遇到非零时间戳时得到空视频。 */
-export function buildRemoveAudioArgs(startSec: string, durationSec: string, outputName = MUTED_VIDEO_OUTPUT_NAME): string[] {
-    // 分离音视频不需要重新编码画面。直接复制视频码流可避免浏览器 WASM
-    // 对整段高分辨率视频做 libx264 转码（这是之前长时间停在“处理中”的主因）。
-    return ["-i", SEGMENT_INPUT_NAME, "-ss", startSec, "-t", durationSec, "-map", "0:v:0", "-an", "-c:v", "copy", outputName];
+export function isFullSourceRange(startMs: number, endMs: number, durationMs?: number) {
+    if (startMs > 0) return false;
+    if (durationMs === undefined || !(durationMs > 0)) return false;
+    return endMs >= durationMs - 1;
+}
+
+const MIN_VIDEO_OUTPUT_BYTES = 4096;
+const MIN_AUDIO_OUTPUT_BYTES = 256;
+
+function containsFourcc(bytes: Uint8Array, fourcc: string) {
+    const a = fourcc.charCodeAt(0);
+    const b = fourcc.charCodeAt(1);
+    const c = fourcc.charCodeAt(2);
+    const d = fourcc.charCodeAt(3);
+    for (let index = 0; index + 4 <= bytes.length; index += 1) {
+        if (bytes[index] === a && bytes[index + 1] === b && bytes[index + 2] === c && bytes[index + 3] === d) return true;
+    }
+    return false;
+}
+
+function asBytes(output: Uint8Array | string) {
+    return typeof output === "string" ? new TextEncoder().encode(output) : output;
+}
+
+export function assertUsableSegmentOutput(output: Uint8Array | string, kind: "video" | "audio") {
+    const bytes = asBytes(output);
+    if (kind === "audio") {
+        if (bytes.byteLength < MIN_AUDIO_OUTPUT_BYTES) throw new Error("音频提取失败：输出文件为空");
+        return;
+    }
+    if (bytes.byteLength < MIN_VIDEO_OUTPUT_BYTES || !containsFourcc(bytes, "ftyp") || !containsFourcc(bytes, "mdat")) {
+        throw new Error("无声视频生成失败：输出文件为空或无法解码");
+    }
+}
+
+/** 去掉原视频音轨。整段可复制画面；部分区间必须重编码，不能 stream copy。 */
+export function buildRemoveAudioArgs(startSec: string, durationSec: string, outputName = MUTED_VIDEO_OUTPUT_NAME, options?: { fullSource?: boolean }): string[] {
+    if (options?.fullSource) {
+        return ["-i", SEGMENT_INPUT_NAME, "-map", "0:V:0", "-an", "-c:v", "copy", "-movflags", "+faststart", outputName];
+    }
+    return ["-i", SEGMENT_INPUT_NAME, "-ss", startSec, "-t", durationSec, "-map", "0:V:0", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", outputName];
 }
 
 /** 空间裁切视频，坐标和尺寸使用源视频像素值。 */
