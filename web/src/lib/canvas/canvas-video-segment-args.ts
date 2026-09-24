@@ -41,10 +41,10 @@ export function assertUsableSegmentOutput(output: Uint8Array | string, kind: "vi
     const bytes = asBytes(output);
     if (kind === "audio") {
         if (hasIsoBmffTrack(bytes, "soun") || isWaveAudio(bytes) || isMpegAudio(bytes)) return;
-        throw new Error("音频提取失败：输出文件为空");
+        throw new Error("音频提取失败：输出没有可用的音轨");
     }
     if (!hasIsoBmffTrack(bytes, "vide")) {
-        throw new Error("无声视频生成失败：输出文件为空或无法解码");
+        throw new Error("无声视频生成失败：输出没有可用的视频轨道");
     }
 }
 

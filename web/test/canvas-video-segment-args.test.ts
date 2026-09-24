@@ -71,27 +71,27 @@ describe("assertUsableSegmentOutput", () => {
         expect(emptyShell.byteLength).toBe(261);
         expect(Buffer.from(emptyShell).includes("ftyp")).toBe(true);
         expect(Buffer.from(emptyShell).includes("mdat")).toBe(true);
-        expect(() => assertUsableSegmentOutput(emptyShell, "video")).toThrow(/为空或无法解码/);
+        expect(() => assertUsableSegmentOutput(emptyShell, "video")).toThrow(/没有可用的视频轨道/);
     });
 
     test("rejects junk that only contains ftyp/mdat as substrings", () => {
         const junk = new TextEncoder().encode(`padding ftyp isom mdat ${"x".repeat(5000)}`);
         expect(junk.byteLength).toBeGreaterThan(4096);
-        expect(() => assertUsableSegmentOutput(junk, "video")).toThrow(/为空或无法解码/);
+        expect(() => assertUsableSegmentOutput(junk, "video")).toThrow(/没有可用的视频轨道/);
     });
 
     test("rejects ftyp+mdat without a video sample table", () => {
-        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 0, mdatPayload: 64 }), "video")).toThrow(/为空或无法解码/);
-        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 0 }), "video")).toThrow(/为空或无法解码/);
-        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "soun", samples: 1, mdatPayload: 64 }), "video")).toThrow(/为空或无法解码/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 0, mdatPayload: 64 }), "video")).toThrow(/没有可用的视频轨道/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 0 }), "video")).toThrow(/没有可用的视频轨道/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "soun", samples: 1, mdatPayload: 64 }), "video")).toThrow(/没有可用的视频轨道/);
     });
 
     test("audio accepts a soun track or a WAVE/MPEG header, not an empty buffer", () => {
         expect(() => assertUsableSegmentOutput(isoBmff({ handler: "soun", samples: 1, mdatPayload: 32 }), "audio")).not.toThrow();
         expect(() => assertUsableSegmentOutput(waveHeader(), "audio")).not.toThrow();
         expect(() => assertUsableSegmentOutput(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), "audio")).not.toThrow();
-        expect(() => assertUsableSegmentOutput(new Uint8Array(128), "audio")).toThrow(/输出文件为空/);
-        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 32 }), "audio")).toThrow(/输出文件为空/);
+        expect(() => assertUsableSegmentOutput(new Uint8Array(128), "audio")).toThrow(/没有可用的音轨/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 32 }), "audio")).toThrow(/没有可用的音轨/);
     });
 });
 
