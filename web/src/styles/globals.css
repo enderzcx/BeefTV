@@ -9440,8 +9440,11 @@ html:not(.dark) .creation-studio-control:hover,
         transition: none;
     }
 
+    /* Do not set pointer-events here. The unselected host uses
+       pointer-events-none; a child `auto` would make the opacity-0
+       放大编辑 button hit-testable again. Selected hosts restore
+       pointer-events-auto on `.canvas-node-inline-edit`. */
     .canvas-node-inline-action {
-        pointer-events: auto;
         border: 0;
         border-radius: var(--r-md);
         background: var(--canvas-composer-surface);

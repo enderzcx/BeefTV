@@ -14,6 +14,12 @@ const inlineEditBlock = nodeSource.slice(nodeSource.indexOf("canvas-node-inline-
 const emptyTextBlock = emptyContentSource.slice(emptyContentSource.indexOf("function EmptyTextNodeContent"), emptyContentSource.indexOf("function SkillContent"));
 const panelHideRule = canvasStylesSource.match(/data-canvas-editor-panel-open="true"\][\s\S]*?\{[\s\S]*?\}/)?.[0] || "";
 const agentHideRule = canvasStylesSource.match(/data-agent-open="true"\] \.canvas-node-inline-action[\s\S]*?\{[\s\S]*?\}/)?.[0] || "";
+const inlineActionRule = canvasStylesSource.match(/(?<!:hover)\.canvas-node-inline-action\s*\{[^}]*\}/)?.[0] || "";
+
+/** CSS `pointer-events` is inherited. An explicit child value wins. */
+function computedPointerEvents(parent?: string, child?: string) {
+    return child || parent || "auto";
+}
 
 describe("canvas text inline edit and empty card", () => {
     test("removes unconfigured empty text from hit-testing and the accessibility tree", () => {
@@ -34,7 +40,16 @@ describe("canvas text inline edit and empty card", () => {
         expect(panelHideRule).not.toContain("pointer-events: none");
         expect(agentHideRule).toContain(".canvas-node-inline-edit");
         expect(agentHideRule).toContain("display: none");
-        expect(canvasStylesSource).toMatch(/\.canvas-node-inline-action\s*\{[\s\S]*?pointer-events: auto;/);
+    });
+
+    test("unselected enlarge-edit inherits pointer-events:none instead of a global auto override", () => {
+        expect(inlineActionRule).toContain(".canvas-node-inline-action");
+        expect(inlineActionRule).not.toMatch(/pointer-events\s*:/);
+        expect(inlineEditBlock).toContain('isSelected ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"');
+        const childOverride = inlineActionRule.match(/pointer-events\s*:\s*([a-z]+)/)?.[1];
+        expect(computedPointerEvents("none", childOverride)).toBe("none");
+        expect(computedPointerEvents("auto", childOverride)).toBe("auto");
+        expect(computedPointerEvents("none", "auto")).toBe("auto");
     });
 
     test("keeps the selected enlarge-edit control in the tree only while it can receive clicks", () => {
