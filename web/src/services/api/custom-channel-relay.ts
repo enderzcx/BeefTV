@@ -1,7 +1,7 @@
 import { apiBaseURL } from "@/services/api/request";
 import { isSystemProxyBaseUrl, type AiConfig, type ChannelHeader } from "@/stores/use-config-store";
 
-type RelayConfig = Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat"> & { headers?: ChannelHeader[] };
+type RelayConfig = Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat"> & { headers?: ChannelHeader[]; credentialRef?: string };
 
 export type ChannelRequest = {
     url: string;
@@ -12,7 +12,8 @@ export type ChannelRequest = {
 /** 自定义渠道统一经登录态后端中转，避免依赖第三方服务的浏览器 CORS。 */
 export function channelRequest(config: RelayConfig, upstreamUrl: string, headers: HeadersInit = {}): ChannelRequest {
     const normalizedHeaders = new Headers(headers);
-    if (typeof window !== "undefined" && window.location?.protocol === "wails:") {
+    const managed = config.credentialRef === "beefapi-enterprise" || /enterprise\.beefapi\.com/i.test(config.baseUrl || "");
+    if (typeof window !== "undefined" && window.location?.protocol === "wails:" && !managed) {
         const normalizedUpstreamUrl = requireHttpUrl(upstreamUrl, "当前模型请求地址");
         normalizedHeaders.set("Authorization", `Bearer ${config.apiKey}`);
         for (const header of config.headers || []) {

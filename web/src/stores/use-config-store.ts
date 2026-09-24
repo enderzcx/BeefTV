@@ -359,8 +359,9 @@ export type ModelChannel = {
     modelAliases?: Record<string, string>;
     scope?: "system" | "user";
     enabled?: boolean;
-	pinned?: boolean;
-	presetVersion?: number;
+    pinned?: boolean;
+    presetVersion?: number;
+    credentialRef?: string;
     hasApiKey?: boolean;
     hasSecretKey?: boolean;
     concurrencyLimit?: number;
@@ -749,9 +750,9 @@ function beefApiSeedanceCapabilityConfig(model: string): ModelCapabilityConfig |
 }
 
 function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
-	if (!channel.baseUrl.toLowerCase().includes("enterprise.beefapi.com")) return channel;
-	const models = channel.models;
-	const existing = new Map((channel.modelProfiles || []).map((item) => [item.model, item]));
+    if (!channel.baseUrl.toLowerCase().includes("enterprise.beefapi.com")) return channel;
+    const models = channel.models;
+    const existing = new Map((channel.modelProfiles || []).map((item) => [item.model, item]));
     for (const model of models.filter(isImageModelName)) {
         const current = existing.get(model);
         existing.set(model, {
@@ -762,18 +763,18 @@ function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
             capabilityConfig: current?.capabilityConfig || defaultModelCapabilityConfig("openai-image", model),
         });
     }
-	for (const model of models.filter(isTextModelName)) {
-		const current = existing.get(model);
-		if (current?.capability && current.capability !== "text") continue;
-		if (current?.protocol && modelProtocolCapability(current.protocol) !== "text") continue;
-		existing.set(model, {
-			...(current || {}),
-			model,
-			capability: "text",
-			protocol: current?.protocol || "chat-completion",
-		});
-	}
-	for (const model of models.filter(isVideoModelName)) {
+    for (const model of models.filter(isTextModelName)) {
+        const current = existing.get(model);
+        if (current?.capability && current.capability !== "text") continue;
+        if (current?.protocol && modelProtocolCapability(current.protocol) !== "text") continue;
+        existing.set(model, {
+            ...(current || {}),
+            model,
+            capability: "text",
+            protocol: current?.protocol || "chat-completion",
+        });
+    }
+    for (const model of models.filter(isVideoModelName)) {
         const current = existing.get(model);
         // Always normalize the built-in BeefAPI media models. This also
         // repairs persisted profiles created by the previous channel-1
@@ -823,8 +824,9 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         models: uniqueRawModels(channel?.models || []),
         scope: channel?.scope === "system" ? "system" : "user",
         enabled: channel?.enabled !== false,
-		pinned: channel?.pinned === true,
-		presetVersion: channel?.presetVersion,
+        pinned: channel?.pinned === true,
+        presetVersion: channel?.presetVersion,
+        credentialRef: channel?.credentialRef,
         hasApiKey: channel?.hasApiKey,
         hasSecretKey: channel?.hasSecretKey,
         modelProfiles: channel?.modelProfiles?.map((item) => ({ ...item, protocol: normalizeModelProtocol(item.protocol) })),
@@ -928,12 +930,13 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         ...config,
         model,
         baseUrl: channel.baseUrl,
-        apiKey: channel.apiKey,
-        secretKey: channel.secretKey,
+        apiKey: channel.credentialRef ? "" : channel.apiKey,
+        secretKey: channel.credentialRef ? "" : channel.secretKey,
         headers: channel.headers,
         apiFormat: interfaceType ? (interfaceType === "gemini-veo" || interfaceType === "gemini-image" ? ("gemini" as const) : interfaceType === "claude-api" ? ("claude" as const) : ("openai" as const)) : channel.apiFormat,
         interfaceType,
         channelId: channel.scope === "system" ? channel.id : "",
+        credentialRef: channel.credentialRef || (channel.id === "beefapi" && channel.pinned ? "beefapi-enterprise" : undefined),
     };
 }
 

@@ -9,6 +9,7 @@ export type ChannelScene = "image" | "video" | "audio";
 export type ChannelTransportConfig = Parameters<typeof channelRequest>[0] & {
     apiKey?: string;
     baseUrl?: string;
+    credentialRef?: string;
 };
 
 export type ChannelCallOptions = {
@@ -32,9 +33,7 @@ export function createChannelTransport(config: ChannelTransportConfig, scene?: C
     const sceneHeaders = (contentType?: string, extra?: Record<string, string>) => ({
         ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
         ...(contentType ? { "Content-Type": contentType } : {}),
-        ...(scene && config.baseUrl && isSystemProxyBaseUrl(config.baseUrl)
-            ? { "X-Canvas-Scene": scene, "X-Idempotency-Key": createClientId() }
-            : {}),
+        ...(scene && config.baseUrl && isSystemProxyBaseUrl(config.baseUrl) ? { "X-Canvas-Scene": scene, "X-Idempotency-Key": createClientId() } : {}),
         ...extra,
     });
 
@@ -58,8 +57,6 @@ export function createChannelTransport(config: ChannelTransportConfig, scene?: C
         postForm: (upstreamUrl, body, options) => send("post", upstreamUrl, body, options),
         get: (upstreamUrl, options) => send("get", upstreamUrl, undefined, options),
         getBlob: (upstreamUrl, options) => send("get", upstreamUrl, undefined, { ...options, responseType: "blob" }),
-        getExternalBlob: async (url, headers, options) => (
-            await axios.get<Blob>(url, { headers, responseType: "blob", signal: options?.signal })
-        ).data,
+        getExternalBlob: async (url, headers, options) => (await axios.get<Blob>(url, { headers, responseType: "blob", signal: options?.signal })).data,
     };
 }

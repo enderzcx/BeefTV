@@ -24,7 +24,44 @@ tags:
   - name: assets
   - name: agent
   - name: admin
+  - name: beefapi
 paths:
+  /beefapi/connection:
+    get:
+      tags: [beefapi]
+      summary: 读取内置 BeefAPI 连接状态
+      description: 只返回账号和状态，不含密钥或 device_code。
+      responses:
+        "200":
+          description: 信封 data 为连接摘要
+  /beefapi/connection/start:
+    post:
+      tags: [beefapi]
+      summary: 开始企业授权并打开系统浏览器确认页
+      responses:
+        "200":
+          description: 进入 pending 或返回已连接状态
+  /beefapi/connection/cancel:
+    post:
+      tags: [beefapi]
+      summary: 取消尚未完成的授权
+      responses:
+        "200":
+          description: 当前连接摘要
+  /beefapi/connection/disconnect:
+    post:
+      tags: [beefapi]
+      summary: 断开当前连接并吊销本机这把密钥
+      responses:
+        "200":
+          description: 当前连接摘要
+  /beefapi/connection/open-wallet:
+    post:
+      tags: [beefapi]
+      summary: 在系统浏览器打开企业钱包
+      responses:
+        "200":
+          description: 已打开
   /canvas-projects/{id}:
     parameters:
       - in: path

@@ -20,7 +20,9 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
     let generation = 0;
     let drainPromise: Promise<void> | null = null;
     let resolveHydration: (() => void) | null = null;
-    const hydrationBarrier = new Promise<void>((resolve) => { resolveHydration = resolve; });
+    const hydrationBarrier = new Promise<void>((resolve) => {
+        resolveHydration = resolve;
+    });
     const listeners = new Set<(next: ModelConfigPersistenceState) => void>();
 
     const publish = (patch: Partial<ModelConfigPersistenceState>) => {
@@ -75,7 +77,9 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
     const scheduleDrain = (): Promise<void> => {
         if (!hydrated) return hydrationBarrier.then(scheduleDrain);
         if (!drainPromise) {
-            drainPromise = runDrain().finally(() => { drainPromise = null; });
+            drainPromise = runDrain().finally(() => {
+                drainPromise = null;
+            });
         }
         return drainPromise;
     };
@@ -105,9 +109,19 @@ function isRevisionConflict(error: unknown) {
     return candidate.status === 409 || candidate.response?.status === 409;
 }
 
+function omitManagedBeefAPISecrets(config: AiConfig): AiConfig {
+    return {
+        ...config,
+        channels: config.channels.map((channel) => {
+            if (channel.id !== "beefapi" || !channel.pinned) return channel;
+            return { ...channel, apiKey: "", secretKey: "" };
+        }),
+    };
+}
+
 const repository = createModelConfigRepository({
     read: getLocalModelConfig,
-    write: saveLocalModelConfig,
+    write: (config, expectedRevision) => saveLocalModelConfig(omitManagedBeefAPISecrets(config), expectedRevision),
 });
 
 export const hydrateModelConfig = repository.hydrate;

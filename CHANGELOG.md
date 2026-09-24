@@ -4,6 +4,7 @@ All notable public changes to BeefTV are documented in this file.
 
 ## Unreleased
 
+- Built-in BeefAPI can be connected from the desktop app without pasting a key.
 - Prepared the first audited public source snapshot.
 - Added reproducible local builds, automated quality checks, and multi-architecture container publishing.
 - Standardized public artifacts, runtime identifiers, documentation, and repository links on the BeefTV name.

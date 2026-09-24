@@ -10,8 +10,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/canvas"
 	"infinite-canvas/backend/internal/kernel"
+	"infinite-canvas/backend/internal/mcp"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/platform"
 	"infinite-canvas/backend/internal/prompts"
@@ -62,6 +64,9 @@ type Service struct {
 	skills                   *skills.Service
 	prompts                  *prompts.Service
 	canvas                   *canvas.Service
+	beefAPI                  *beefapi.Service
+	mcpOnce                  sync.Once
+	mcpSession               *mcp.Session
 }
 
 const taskWorkerConcurrency = 3

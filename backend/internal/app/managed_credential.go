@@ -1,0 +1,174 @@
+package app
+
+import (
+	"encoding/json"
+	"strings"
+
+	"infinite-canvas/backend/internal/beefapi"
+)
+
+const managedBeefAPIRef = beefapi.CredentialRef
+
+func (s *Service) SetBeefAPI(connection *beefapi.Service) {
+	if s == nil {
+		return
+	}
+	s.beefAPI = connection
+}
+
+func (s *Service) BeefAPI() *beefapi.Service {
+	if s == nil {
+		return nil
+	}
+	return s.beefAPI
+}
+
+func (s *Service) resolveManagedBeefAPISecrets(input map[string]any) (map[string]any, error) {
+	if input == nil {
+		return input, nil
+	}
+	config, ok := input["config"].(map[string]any)
+	if !ok {
+		return input, nil
+	}
+	channelID := strings.TrimSpace(stringValue(config["channelId"]))
+	credentialRef := strings.TrimSpace(stringValue(config["credentialRef"]))
+	baseURL := strings.TrimSpace(stringValue(config["baseUrl"]))
+	if !beefapi.IsManagedChannel(channelID, credentialRef, baseURL) && !s.hasLegacyBeefAPIKey(channelID, baseURL) {
+		return input, nil
+	}
+	apiKey, resolvedBase, accountID, tokenID, err := s.lookupBeefAPICredential()
+	if err != nil {
+		return nil, err
+	}
+	if apiKey == "" {
+		return input, nil
+	}
+	next := make(map[string]any, len(config)+4)
+	for key, value := range config {
+		switch key {
+		case "apiKey", "credentialRef":
+			continue
+		default:
+			next[key] = value
+		}
+	}
+	if channelID == beefapi.ChannelID {
+		delete(next, "channelId")
+	}
+	next["apiKey"] = apiKey
+	if strings.TrimSpace(stringValue(next["baseUrl"])) == "" || beefapi.IsEnterpriseBaseURL(baseURL) || channelID == beefapi.ChannelID || credentialRef == managedBeefAPIRef {
+		next["baseUrl"] = resolvedBase
+	}
+	next["credentialRef"] = managedBeefAPIRef
+	if accountID != "" {
+		next["managedAccountId"] = accountID
+	}
+	if tokenID != "" {
+		next["managedTokenId"] = tokenID
+	}
+	input["config"] = next
+	return input, nil
+}
+
+func (s *Service) lookupBeefAPICredential() (apiKey, baseURL, accountID, tokenID string, err error) {
+	if s.beefAPI != nil {
+		if s.beefAPI.HasManagedCredential() {
+			cred, resolveErr := s.beefAPI.Resolve()
+			if resolveErr != nil {
+				return "", "", "", "", BadAuthRequest(resolveErr.Error())
+			}
+			return cred.APIKey, cred.BaseURL, cred.AccountID, cred.TokenID, nil
+		}
+	}
+	body, readErr := s.ReadLocalModelConfig()
+	if readErr != nil || len(body) == 0 {
+		return "", "", "", "", nil
+	}
+	var config struct {
+		Channels []struct {
+			ID      string `json:"id"`
+			APIKey  string `json:"apiKey"`
+			BaseURL string `json:"baseUrl"`
+		} `json:"channels"`
+	}
+	if json.Unmarshal(body, &config) != nil {
+		return "", "", "", "", nil
+	}
+	for _, channel := range config.Channels {
+		if channel.ID == beefapi.ChannelID && strings.TrimSpace(channel.APIKey) != "" {
+			base := strings.TrimSpace(channel.BaseURL)
+			if base == "" {
+				base = beefapi.ProductionOrigin
+			}
+			return channel.APIKey, base, "", "", nil
+		}
+	}
+	return "", "", "", "", nil
+}
+
+func (s *Service) hasLegacyBeefAPIKey(channelID, baseURL string) bool {
+	if channelID != beefapi.ChannelID && !beefapi.IsEnterpriseBaseURL(baseURL) {
+		return false
+	}
+	apiKey, _, _, _, err := s.lookupBeefAPICredential()
+	return err == nil && apiKey != ""
+}
+
+func (s *Service) resolveChannelModelsRequest(input *ChannelModelsRequest) error {
+	if input == nil {
+		return nil
+	}
+	if !beefapi.IsManagedChannel(input.ChannelID, input.CredentialRef, input.BaseURL) && input.ChannelID != beefapi.ChannelID {
+		return nil
+	}
+	apiKey, baseURL, _, _, err := s.lookupBeefAPICredential()
+	if err != nil {
+		return err
+	}
+	if apiKey == "" {
+		return nil
+	}
+	input.APIKey = apiKey
+	if strings.TrimSpace(input.BaseURL) == "" || beefapi.IsEnterpriseBaseURL(input.BaseURL) || input.ChannelID == beefapi.ChannelID {
+		input.BaseURL = baseURL
+	}
+	input.CredentialRef = managedBeefAPIRef
+	return nil
+}
+
+func (s *Service) ResolveCustomRelayAPIKey(targetHost, incoming string) (string, error) {
+	return s.resolveCustomRelayKey(targetHost, incoming)
+}
+
+func (s *Service) resolveCustomRelayKey(targetHost, incoming string) (string, error) {
+	if !isManagedBeefAPIRelayHost(targetHost) {
+		return incoming, nil
+	}
+	apiKey, _, _, _, err := s.lookupBeefAPICredential()
+	if err != nil {
+		return "", err
+	}
+	if apiKey == "" {
+		return incoming, nil
+	}
+	return apiKey, nil
+}
+
+func isManagedBeefAPIRelayHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "enterprise.beefapi.com" || strings.HasPrefix(host, "127.0.0.1") || host == "localhost"
+}
+
+func (s *Service) noteBeefAPIProviderError(message string) {
+	if s == nil || s.beefAPI == nil {
+		return
+	}
+	normalized := strings.ToLower(message)
+	if strings.Contains(normalized, "unauthorized") || strings.Contains(message, "连接已失效") {
+		s.beefAPI.MarkRevoked()
+	}
+	if strings.Contains(message, "额度不足") || strings.Contains(normalized, "insufficient") || strings.Contains(message, "余额不足") {
+		s.beefAPI.MarkZeroBalance()
+	}
+}

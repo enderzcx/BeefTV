@@ -18,6 +18,7 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 | 路由组 | 用途 |
 | --- | --- |
 | `/workspace/*` | 本地工作区启动和模型配置 |
+| `/beefapi/connection*` | 内置 BeefAPI 企业连接：开始、状态、取消、断开；页面只收到账号和状态，收不到密钥 |
 | `/canvas-projects/*`, `/projects/*` | 画布、项目、章节、分镜与快照 |
 | `/resources/*` | 本地素材、分片上传和媒体读取 |
 | `/tasks/*` | 生成任务创建、查询、取消、恢复与事件流 |
@@ -31,3 +32,5 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 `/auth/*`、`/admin/*`、`/payments/*`、`/wallet/*`、`/public/canvas-shares/*` 以及云存储配置端点不属于本地产品合同。
 
 Agent 的 `budget` 字段是本地运行上限（步数、生成次数、视频秒数），不代表积分、付费或扣费。
+
+内置 BeefAPI 连接成功后，同一份企业凭证用于渠道请求、模型目录和本机 MCP 工具。MCP 工具名为 `beeftv_list_models`、`beeftv_submit_media`、`beeftv_get_task`；媒体提交必须经过本机审批与预算，不能把 `approved=true` 当作授权。

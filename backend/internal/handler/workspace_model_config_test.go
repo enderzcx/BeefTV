@@ -34,6 +34,26 @@ func TestWorkspaceModelConfigReturnsBuiltinBeefAPIAndPersistenceMetadata(t *test
 	}
 }
 
+func TestWorkspaceModelConfigGETRedactsBeefAPIKey(t *testing.T) {
+	router, _ := newModelConfigTestRouter(t)
+	first := putModelConfig(t, router, 0, "local-secret-key")
+	if first.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", first.Code, first.Body.String())
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/workspace/model-config", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte("local-secret-key")) {
+		t.Fatalf("model-config leaked api key: %s", recorder.Body.String())
+	}
+	stale := putModelConfig(t, router, 1, "ui-overwrite")
+	if stale.Code != http.StatusOK {
+		t.Fatalf("second put status = %d body=%s", stale.Code, stale.Body.String())
+	}
+}
+
 func TestWorkspaceModelConfigRejectsStaleRevisionWithoutLeakingSecrets(t *testing.T) {
 	router, _ := newModelConfigTestRouter(t)
 	first := putModelConfig(t, router, 0, "first-secret")

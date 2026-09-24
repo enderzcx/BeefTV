@@ -991,10 +991,28 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 	var modelList any
 	var modelListErr error
 	if allowed && call.Function.Name == "model_list" {
-		intent, e := s.cloudAgentModelIntent(run.UserID, state.Request.CanvasID, call.Function.Arguments)
+		var args map[string]any
+		_ = json.Unmarshal([]byte(call.Function.Arguments), &args)
+		if args == nil {
+			args = map[string]any{}
+		}
+		args["userId"] = run.UserID
+		args["canvasId"] = state.Request.CanvasID
+		result, e := s.callMCPTool(mcpToolListModels, args)
 		modelListErr = e
-		if e == nil {
-			modelList, modelListErr = s.cloudAgentModelList(intent)
+		if e == nil && result.IsError {
+			message := "模型目录读取失败"
+			if len(result.Content) > 0 {
+				if text, _ := result.Content[0]["text"].(string); strings.TrimSpace(text) != "" {
+					message = text
+				}
+			}
+			modelListErr = BadAuthRequest(message)
+		} else if e == nil {
+			modelList = result.Data
+			if modelList == nil {
+				modelList = result
+			}
 		}
 	}
 	// Skill reads use the domain repository and filesystem, not the checkpoint
@@ -1042,7 +1060,13 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 }
 
 func (s *Service) enqueueCloudAgentTask(run *model.CloudAgentExecution, state *cloudAgentRuntime, req CreateTaskRequest, media *cloudAgentMediaPlan) error {
-	req.admission = &taskAdmission{ID: cloudAgentID(run.UserID, fmt.Sprintf("%s:task:%d", run.ID, len(state.TaskIDs)))}
+	if req.admission == nil {
+		key := fmt.Sprintf("%s:task:%d", run.ID, len(state.TaskIDs))
+		if media != nil && media.CallID != "" {
+			key = fmt.Sprintf("%s:mcp-media:%s", run.ID, media.CallID)
+		}
+		req.admission = &taskAdmission{ID: cloudAgentID(run.UserID, key)}
+	}
 	req.creationPrepare = &creationTaskPreparation{}
 	task, err := s.CreateTask(run.UserID, req)
 	if err != nil {
@@ -1236,11 +1260,28 @@ func (s *Service) advanceCloudAgentMedia(run *model.CloudAgentExecution, state *
 			return cloudAgentSave(current, state)
 		})
 	}
-	req, plan, err := s.prepareCloudAgentMedia(run, state, call)
+	result, err := s.callMCPTool(mcpToolSubmitMedia, map[string]any{
+		"userId": run.UserID, "runId": run.ID, "callId": call.ID,
+	})
 	if err != nil {
 		return s.cloudAgentMediaError(run, state, "admission", false, false, err)
 	}
-	return s.enqueueCloudAgentTask(run, state, req, plan)
+	if result.IsError {
+		message := "媒体任务提交失败"
+		if len(result.Content) > 0 {
+			if text, _ := result.Content[0]["text"].(string); strings.TrimSpace(text) != "" {
+				message = text
+			}
+		}
+		return s.cloudAgentMediaError(run, state, "admission", false, false, BadAuthRequest(message))
+	}
+	if latest, readErr := s.repo.CloudAgent(run.UserID, run.ID); readErr == nil && latest != nil {
+		*run = *latest
+		if fresh, decodeErr := cloudAgentDecode(latest); decodeErr == nil {
+			*state = fresh
+		}
+	}
+	return nil
 }
 
 func (s *Service) DecideCloudAgentApproval(userID, id, approvalID, decision, reason string, mediaSettings ...*CloudAgentMediaSettings) error {

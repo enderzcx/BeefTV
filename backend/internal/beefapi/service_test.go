@@ -1,0 +1,365 @@
+package beefapi
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"infinite-canvas/backend/internal/workspace"
+)
+
+type fakeEnterprise struct {
+	mu             sync.Mutex
+	codes          int
+	tokenCalls     int
+	completes      int
+	cancels        int
+	deletes        int
+	pending        atomic.Int32
+	mode           string
+	savedKey       string
+	completeBefore bool
+	dropComplete   bool
+	catalogFail    bool
+	opened         []string
+}
+
+func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/oauth/device/code", func(w http.ResponseWriter, r *http.Request) {
+		fake.mu.Lock()
+		fake.codes++
+		fake.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code": "dev-1", "user_code": "ABCD-EFGH",
+			"verification_uri": r.Host, "expires_in": 60, "interval": 1,
+		})
+	})
+	mux.HandleFunc("/api/oauth/device/token", func(w http.ResponseWriter, r *http.Request) {
+		fake.tokenCalls++
+		switch fake.mode {
+		case "pending":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+			return
+		case "denied":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "access_denied"})
+			return
+		case "expired":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
+			return
+		}
+		if fake.pending.Add(-1) >= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+			return
+		}
+		origin := "http://" + r.Host
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"api_key": "ent-secret-key", "base_url": origin + "/v1", "market": "enterprise", "group": "enterprise",
+			"key_name": "BeefTV", "token_id": "tok-1",
+			"account": map[string]string{"id": "acct-1", "username": "ender", "display_name": "Ender", "email": "e@example.com"},
+		})
+	})
+	mux.HandleFunc("/api/oauth/device/complete", func(w http.ResponseWriter, r *http.Request) {
+		fake.mu.Lock()
+		fake.completes++
+		drop := fake.dropComplete && fake.completes == 1
+		fake.mu.Unlock()
+		if drop {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	mux.HandleFunc("/api/oauth/device/cancel", func(w http.ResponseWriter, r *http.Request) {
+		fake.cancels++
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	mux.HandleFunc("/v1/beeftv/connection", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			fake.deletes++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		if !strings.HasSuffix(auth, "ent-secret-key") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"market": "enterprise", "token_id": "tok-1", "key_name": "BeefTV",
+			"account": map[string]string{"id": "acct-1", "username": "ender", "display_name": "Ender"},
+		})
+	})
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if fake.catalogFail {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"id": "gpt-test", "model_type": "text"}, {"id": "seedance-test", "model_type": "video"}},
+		})
+	})
+	mux.HandleFunc("/desktop-auth", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/oauth/device/code" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-1", "user_code": "ABCD-EFGH",
+				"verification_uri":          "http://" + r.Host + "/desktop-auth",
+				"verification_uri_complete": "http://" + r.Host + "/desktop-auth?user_code=ABCD-EFGH",
+				"expires_in":                60, "interval": 1,
+			})
+			fake.codes++
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func testService(t *testing.T, fake *fakeEnterprise) (*Service, *workspace.ProviderConfig) {
+	t.Helper()
+	server := newEnterpriseServer(t, fake)
+	dir := t.TempDir()
+	store, err := workspace.NewProviderConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := New(Options{
+		DataDir: dir, Origin: server.URL, Provider: store, ClientVersion: "test", Hostname: "testhost",
+		HTTPClient: server.Client(),
+		OpenURL: func(raw string) error {
+			fake.opened = append(fake.opened, raw)
+			return nil
+		},
+		Sleep: func(time.Duration) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	return svc, store
+}
+
+func waitState(t *testing.T, svc *Service, want string) Summary {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		summary := svc.Status()
+		if summary.State == want {
+			return summary
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	summary := svc.Status()
+	t.Fatalf("state = %q want %q error=%q", summary.State, want, summary.ErrorReason)
+	return summary
+}
+
+func TestConnectionHappyPathSavesBeforeAckAndHidesKey(t *testing.T) {
+	fake := &fakeEnterprise{}
+	svc, store := testService(t, fake)
+	summary, err := svc.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.State != StatePending || summary.UserCode != "ABCD-EFGH" {
+		t.Fatalf("start summary = %#v", summary)
+	}
+	if len(fake.opened) != 1 || !strings.Contains(fake.opened[0], "/desktop-auth") {
+		t.Fatalf("opened = %#v", fake.opened)
+	}
+	connected := waitState(t, svc, StateConnected)
+	if connected.Account == nil || connected.Account.ID != "acct-1" || connected.HasCredential != true {
+		t.Fatalf("connected = %#v", connected)
+	}
+	if strings.Contains(mustJSON(t, connected), "ent-secret-key") {
+		t.Fatal("summary leaked api key")
+	}
+	cred, err := svc.Resolve()
+	if err != nil || cred.APIKey != "ent-secret-key" {
+		t.Fatalf("resolve = %#v err=%v", cred, err)
+	}
+	effective, _, err := store.LoadEffectiveModelConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := svc.RedactConfig(effective.Config)
+	if strings.Contains(mustJSON(t, redacted), "ent-secret-key") {
+		t.Fatal("model config presentation leaked key")
+	}
+	channel := findChannel(effective.Config["channels"].([]any), "beefapi")
+	if channel["apiKey"] != "" {
+		t.Fatalf("managed key stored in model config: %#v", channel["apiKey"])
+	}
+	if catalogSize(channel["models"]) < 2 {
+		t.Fatalf("catalog not applied: %#v", channel["models"])
+	}
+	if fake.completes < 1 {
+		t.Fatal("ack was not sent after save")
+	}
+}
+
+func TestConnectionRejectedAndExpiredAreDistinct(t *testing.T) {
+	fake := &fakeEnterprise{mode: "denied"}
+	svc, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	summary := waitState(t, svc, StateRejected)
+	if summary.ErrorReason == "" {
+		t.Fatal("rejected reason missing")
+	}
+
+	fake = &fakeEnterprise{mode: "expired"}
+	svc, _ = testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if waitState(t, svc, StateExpired).State != StateExpired {
+		t.Fatal("expired not recorded")
+	}
+}
+
+func TestCancelDoesNotDuplicateRemoteEffects(t *testing.T) {
+	fake := &fakeEnterprise{mode: "pending"}
+	svc, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if fake.cancels == 0 {
+		t.Fatal("cancel was not sent")
+	}
+	if svc.Status().State != StateCancelled {
+		t.Fatalf("state = %q", svc.Status().State)
+	}
+}
+
+func TestLostAckIsRetriedOnRecover(t *testing.T) {
+	fake := &fakeEnterprise{dropComplete: true}
+	svc, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, svc, StateConnected)
+	if fake.completes < 1 {
+		t.Fatal("first ack attempt missing")
+	}
+	if err := svc.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fake.completes >= 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("ack retries = %d", fake.completes)
+}
+
+func TestCatalogFailureIsNotConnected(t *testing.T) {
+	fake := &fakeEnterprise{catalogFail: true}
+	svc, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	summary := waitState(t, svc, StateCatalogFailed)
+	if !summary.HasCredential {
+		t.Fatal("credential should remain after catalog failure")
+	}
+	if _, err := svc.Resolve(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDisconnectRevokesOnlyCurrentKey(t *testing.T) {
+	fake := &fakeEnterprise{}
+	svc, store := testService(t, fake)
+	if err := store.SaveLocalModelConfig([]byte(`{"channels":[{"id":"other","apiKey":"keep-me","enabled":true,"models":["x"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, svc, StateConnected)
+	if _, err := svc.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if fake.deletes != 1 {
+		t.Fatalf("deletes = %d", fake.deletes)
+	}
+	if svc.Status().State != StateDisconnected || svc.HasManagedCredential() {
+		t.Fatalf("status = %#v", svc.Status())
+	}
+	effective, _, err := store.LoadEffectiveModelConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := findChannel(effective.Config["channels"].([]any), "other")
+	if other["apiKey"] != "keep-me" {
+		t.Fatalf("unrelated channel overwritten: %#v", other)
+	}
+}
+
+func TestSaveStateFailureIsDistinct(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, connectionStoreFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveState(dir, persistedState{Status: StatePending}); err == nil {
+		t.Fatal("directory collision must fail")
+	}
+}
+
+func TestFrontendWriteCannotClobberManagedFields(t *testing.T) {
+	incoming := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "from-ui", "deviceCode": "leak"}}}
+	existing := map[string]any{"channels": []any{map[string]any{"id": "beefapi", "apiKey": "disk-secret"}}}
+	PreserveManagedChannel(incoming, existing, true)
+	channel := findChannel(incoming["channels"].([]any), "beefapi")
+	if channel["apiKey"] != "" || channel["deviceCode"] != nil {
+		t.Fatalf("managed fields leaked into write: %#v", channel)
+	}
+}
+
+func catalogSize(value any) int {
+	switch typed := value.(type) {
+	case []any:
+		return len(typed)
+	case []string:
+		return len(typed)
+	default:
+		return 0
+	}
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
