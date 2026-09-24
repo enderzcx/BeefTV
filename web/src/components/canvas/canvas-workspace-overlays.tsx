@@ -89,11 +89,13 @@ export function CanvasSelectionToolbar({ anchorRef, containerRef, count, childre
     );
 }
 
-export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidth, panelMinWidth = 660, panelMaxWidth = 920, panelWidthScale = 1.5, panelHeight = 190, dragOffset, isDragging = false, allowOverflow = false, keepBelowNode = false, children }: { node: CanvasNodeData; viewport: ViewportTransform; containerRef: RefObject<HTMLDivElement | null>; panelWidth?: number; panelMinWidth?: number; panelMaxWidth?: number; panelWidthScale?: number; panelHeight?: number; dragOffset?: Position | null; isDragging?: boolean; allowOverflow?: boolean; keepBelowNode?: boolean; children: ReactNode }) {
+export const CANVAS_MAIN_DOCK_CLEARANCE = 80;
+
+export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidth, panelMinWidth = 660, panelMaxWidth = 920, panelWidthScale = 1.5, panelHeight = 190, dragOffset, isDragging = false, allowOverflow = false, keepBelowNode = false, avoidBottomDock = false, className, children }: { node: CanvasNodeData; viewport: ViewportTransform; containerRef: RefObject<HTMLDivElement | null>; panelWidth?: number; panelMinWidth?: number; panelMaxWidth?: number; panelWidthScale?: number; panelHeight?: number; dragOffset?: Position | null; isDragging?: boolean; allowOverflow?: boolean; keepBelowNode?: boolean; avoidBottomDock?: boolean; className?: string; children: ReactNode }) {
     const panelRef = useRef<HTMLDivElement>(null);
     const { bringToFront, zIndex } = useCanvasOverlayLayer(`node-panel:${node.id}`, "var(--z-modal-overlay)");
     const initialWidth = resolveNodePanelWidth(node, viewport, panelWidth, panelMinWidth, panelMaxWidth, panelWidthScale);
-    const initialPosition = getNodePanelPosition(node, viewport, { width: containerRef.current?.clientWidth || 0, height: containerRef.current?.clientHeight || 0 }, initialWidth, panelHeight, dragOffset, keepBelowNode);
+    const initialPosition = getNodePanelPosition(node, viewport, { width: containerRef.current?.clientWidth || 0, height: containerRef.current?.clientHeight || 0 }, initialWidth, panelHeight, dragOffset, keepBelowNode, avoidBottomDock);
 
     useLayoutEffect(() => {
         bringToFront();
@@ -112,8 +114,8 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
             panel.style.width = `${nextWidth}px`;
             const nodeElement = container.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
             const position = nodeElement
-                ? getAttachedNodePanelPosition(nodeElement, container, nextWidth, panelHeight, keepBelowNode)
-                : getNodePanelPosition(node, nextViewport, viewportSize, nextWidth, panelHeight, liveDragOffset, keepBelowNode);
+                ? getAttachedNodePanelPosition(nodeElement, container, nextWidth, panelHeight, keepBelowNode, avoidBottomDock)
+                : getNodePanelPosition(node, nextViewport, viewportSize, nextWidth, panelHeight, liveDragOffset, keepBelowNode, avoidBottomDock);
             panel.style.transform = `translate3d(${position.left}px, ${position.top}px, 0)`;
         };
         update(viewport);
@@ -132,14 +134,14 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
             unsubscribeViewport();
             unsubscribeDrag();
         };
-    }, [containerRef, dragOffset?.x, dragOffset?.y, isDragging, keepBelowNode, node.height, node.id, node.position.x, node.position.y, node.width, panelHeight, panelMaxWidth, panelMinWidth, panelWidth, panelWidthScale, viewport]);
+    }, [avoidBottomDock, containerRef, dragOffset?.x, dragOffset?.y, isDragging, keepBelowNode, node.height, node.id, node.position.x, node.position.y, node.width, panelHeight, panelMaxWidth, panelMinWidth, panelWidth, panelWidthScale, viewport]);
 
     return (
         <div
             ref={panelRef}
             data-canvas-no-zoom
             data-canvas-node-panel
-            className={`thin-scrollbar absolute max-w-[calc(100%_-_24px)] ${allowOverflow ? "overflow-visible" : "overflow-y-auto"}`}
+            className={`thin-scrollbar absolute max-w-[calc(100%_-_24px)] ${allowOverflow ? "overflow-visible" : "overflow-y-auto"}${className ? ` ${className}` : ""}`}
             style={{ left: 0, top: 0, transform: `translate3d(${initialPosition.left}px, ${initialPosition.top}px, 0)`, width: initialWidth, maxHeight: allowOverflow ? "none" : "calc(100% - 84px)", zIndex }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDownCapture={bringToFront}
@@ -243,20 +245,22 @@ function getCanvasOverlaySafeWidth(container: HTMLElement, width: number) {
     return Math.max(0, Math.min(width, agentRect.left - containerRect.left));
 }
 
-function constrainNodePanelPosition(left: number, top: number, viewportSize: { width: number; height: number }, panelWidth: number, panelHeight: number, preferredTop: number, keepBelowNode = false) {
+function constrainNodePanelPosition(left: number, top: number, viewportSize: { width: number; height: number }, panelWidth: number, panelHeight: number, preferredTop: number, keepBelowNode = false, avoidBottomDock = false) {
     const gap = 16;
     // Keep the compact composer below the node on short viewports; LibTV
     // reserves only a small gap above the bottom controls.
-    const bottomReserve = 16;
+    const bottomReserve = avoidBottomDock ? CANVAS_MAIN_DOCK_CLEARANCE : 16;
     const maxLeft = Math.max(gap, viewportSize.width - panelWidth - gap);
     const maxTop = Math.max(gap, viewportSize.height - panelHeight - bottomReserve);
     return {
         left: clamp(left, gap, maxLeft),
-        top: keepBelowNode ? top : clamp(top > maxTop ? Math.max(gap, preferredTop - panelHeight - gap) : top, gap, maxTop),
+        top: keepBelowNode
+            ? (avoidBottomDock ? Math.min(top, maxTop) : top)
+            : clamp(top > maxTop ? Math.max(gap, preferredTop - panelHeight - gap) : top, gap, maxTop),
     };
 }
 
-function getAttachedNodePanelPosition(nodeElement: HTMLElement, container: HTMLElement, panelWidth: number, panelHeight: number, keepBelowNode = false) {
+function getAttachedNodePanelPosition(nodeElement: HTMLElement, container: HTMLElement, panelWidth: number, panelHeight: number, keepBelowNode = false, avoidBottomDock = false) {
     const gap = 16;
     const nodeRect = nodeElement.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -265,12 +269,12 @@ function getAttachedNodePanelPosition(nodeElement: HTMLElement, container: HTMLE
     const preferredTop = nodeRect.top - containerRect.top;
     const top = nodeRect.bottom - containerRect.top + gap;
     return {
-        ...constrainNodePanelPosition(left, top, viewportSize, panelWidth, panelHeight, preferredTop, keepBelowNode),
+        ...constrainNodePanelPosition(left, top, viewportSize, panelWidth, panelHeight, preferredTop, keepBelowNode, avoidBottomDock),
         placement: "below" as const,
     };
 }
 
-export function getNodePanelPosition(node: CanvasNodeData, viewport: ViewportTransform, viewportSize: { width: number; height: number }, panelWidth: number, panelHeight: number, dragOffset?: Position | null, keepBelowNode = false) {
+export function getNodePanelPosition(node: CanvasNodeData, viewport: ViewportTransform, viewportSize: { width: number; height: number }, panelWidth: number, panelHeight: number, dragOffset?: Position | null, keepBelowNode = false, avoidBottomDock = false) {
     const gap = 16;
     const offsetX = dragOffset?.x || 0;
     const offsetY = dragOffset?.y || 0;
@@ -278,7 +282,7 @@ export function getNodePanelPosition(node: CanvasNodeData, viewport: ViewportTra
     const nodeTop = viewport.y + (node.position.y + offsetY) * viewport.k;
     const nodeBottom = viewport.y + (node.position.y + offsetY + node.height) * viewport.k;
     return {
-        ...constrainNodePanelPosition(nodeCenterX - panelWidth / 2, nodeBottom + gap, viewportSize, panelWidth, panelHeight, nodeTop, keepBelowNode),
+        ...constrainNodePanelPosition(nodeCenterX - panelWidth / 2, nodeBottom + gap, viewportSize, panelWidth, panelHeight, nodeTop, keepBelowNode, avoidBottomDock),
         placement: "below" as const,
     };
 }

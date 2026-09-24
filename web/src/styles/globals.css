@@ -8349,6 +8349,11 @@ html:not(.dark) .creation-studio-control:hover,
         z-index: calc(var(--z-canvas-overlay-active) + 10) !important;
     }
 
+    /* Active video trim is an editor, not a node composer. Keep confirm above the dock. */
+    .canvas-video-trim-overlay {
+        z-index: calc(var(--z-canvas-overlay-active) + 20) !important;
+    }
+
     /* Compat mode follows the reference canvas' taller bottom docks: the
        controls sit in a roughly 50px floating rail instead of the compact
        local-first 40px rail. */
