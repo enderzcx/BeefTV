@@ -28,7 +28,7 @@ describe("desktop release build contract", () => {
         expect(dockerfile).not.toContain("verify-payment-packages.sh");
         expect(packageJson.scripts?.test).toContain("scripts/run-test-suite.mjs");
         const testRunner = readFileSync(resolve(root, "web/scripts/run-test-suite.mjs"), "utf8");
-        expect(testRunner).toContain("mutatesBrowserGlobals");
+        expect(testRunner).toContain('source.includes("globalThis")');
         expect(testRunner).toContain("for (const file of isolated) run([file])");
     });
 

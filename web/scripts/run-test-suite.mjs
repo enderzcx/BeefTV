@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const testFilePattern = /\.test\.[cm]?[jt]sx?$/;
-const mutatesBrowserGlobals = /globalThis\s*(?:\.\s*(?:window|document|navigator)|\[\s*["'](?:window|document|navigator)["']\s*\])|Object\.defineProperty\(\s*globalThis\s*,\s*["'](?:window|document|navigator)["']/;
+const browserGlobalName = /\b(?:window|document|navigator)\b/;
 
 function collectTestFiles(directory) {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -25,7 +25,10 @@ function run(files) {
 }
 
 const files = [...collectTestFiles(join(root, "test")), ...collectTestFiles(join(root, "src"))].sort();
-const isolated = files.filter((file) => mutatesBrowserGlobals.test(readFileSync(join(root, file), "utf8")));
+const isolated = files.filter((file) => {
+    const source = readFileSync(join(root, file), "utf8");
+    return source.includes("globalThis") && browserGlobalName.test(source);
+});
 const shared = files.filter((file) => !isolated.includes(file));
 
 run(shared);
