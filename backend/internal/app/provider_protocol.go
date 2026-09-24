@@ -207,8 +207,9 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
 		Extra: map[string]any{
 			"videoSeconds": input.Config.VideoSeconds,
-			"audioVoice":   input.Config.AudioVoice,
-			"audioFormat":  input.Config.AudioFormat,
+			"audioVoice":   resolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
+			"audioFormat":  defaultString(input.Config.AudioFormat, "mp3"),
+			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
 			"count":        input.Config.Count,
 		},
 	}
@@ -238,6 +239,9 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Count: request.ImageCount, Duration: request.Duration, AspectRatio: request.AspectRatio,
 		Resolution: request.Resolution, Quality: request.Quality, GenerateAudio: request.GenerateAudio,
 		Watermark: request.Watermark, Format: input.Config.AudioFormat,
+	}
+	if instructions := strings.TrimSpace(input.Config.AudioInstructions); instructions != "" {
+		request.Extra["audioInstructions"] = instructions
 	}
 	request.ProviderOptions = make(map[string]map[string]any)
 	if configured, ok := input.Metadata["providerOptions"].(map[string]any); ok {

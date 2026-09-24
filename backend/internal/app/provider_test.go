@@ -2580,6 +2580,54 @@ func TestProtocolRequestRestoresDeclaredVideoResolutionEnum(t *testing.T) {
 	}
 }
 
+func TestProtocolRequestMapsMiniMaxSpeechControls(t *testing.T) {
+	request := protocolRequestFromInput(canvasGenerationInput{
+		Mode: "audio",
+		Config: providerConfig{
+			Model:       "minimax-speech-2.8-hd",
+			AudioVoice:  "alloy",
+			AudioFormat: "mp3",
+			AudioSpeed:  "1.25",
+		},
+	})
+	if request.Extra["audioVoice"] != "male-qn-qingse" {
+		t.Fatalf("audioVoice = %#v, want MiniMax default instead of OpenAI alloy", request.Extra["audioVoice"])
+	}
+	if request.Extra["audioFormat"] != "mp3" {
+		t.Fatalf("audioFormat = %#v", request.Extra["audioFormat"])
+	}
+	if request.Extra["audioSpeed"] != "1.25" {
+		t.Fatalf("audioSpeed = %#v", request.Extra["audioSpeed"])
+	}
+
+	kept := protocolRequestFromInput(canvasGenerationInput{
+		Mode: "audio",
+		Config: providerConfig{
+			Model:       "beefapi::minimax-speech-2.8-hd",
+			AudioVoice:  "male-qn-jingying",
+			AudioFormat: "wav",
+			AudioSpeed:  "0.8",
+		},
+	})
+	if kept.Extra["audioVoice"] != "male-qn-jingying" || kept.Extra["audioFormat"] != "wav" {
+		t.Fatalf("custom MiniMax controls = %#v", kept.Extra)
+	}
+
+	openai := protocolRequestFromInput(canvasGenerationInput{
+		Mode: "audio",
+		Config: providerConfig{
+			Model:             "gpt-4o-mini-tts",
+			AudioVoice:        "alloy",
+			AudioFormat:       "mp3",
+			AudioSpeed:        "1",
+			AudioInstructions: "warm",
+		},
+	})
+	if openai.Extra["audioVoice"] != "alloy" || openai.Extra["audioInstructions"] != "warm" {
+		t.Fatalf("openai extras = %#v", openai.Extra)
+	}
+}
+
 func TestVolcengineArkDeclarativeRequestUsesResolutionSuffix(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("volcengine-ark-video", "doubao-seedance-2-0-fast-260128").Video
 	request := protocolRequestFromInput(canvasGenerationInput{

@@ -1,4 +1,4 @@
-import { audioMimeType, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, normalizeAudioVolumeValue } from "@/lib/audio-generation";
+import { audioMimeType, buildAudioSpeechRequest, normalizeAudioFormatValue } from "@/lib/audio-generation";
 import { createChannelTransport } from "@/services/api/channel-transport";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { buildApiUrl, channelHasGenerationCredential, isBuiltinBeefAPIChannel, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
@@ -18,18 +18,8 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const model = requestConfig.model.trim();
     assertAudioConfig(requestConfig, selectedModel);
-    const format = normalizeAudioFormatValue(config.audioFormat);
-    const instructions = config.audioInstructions.trim();
-    const payload = {
-        model,
-        input: prompt,
-        voice: normalizeAudioVoiceValue(config.audioVoice),
-        response_format: format,
-        speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
-        pitch: Number(normalizeAudioPitchValue(config.audioPitch)),
-        volume: Number(normalizeAudioVolumeValue(config.audioVolume)),
-        ...(instructions ? { instructions } : {}),
-    };
+    const format = normalizeAudioFormatValue(config.audioFormat, model);
+    const payload = buildAudioSpeechRequest({ ...config, model }, prompt);
 
     try {
         if (requestConfig.interfaceType === "async-audio") {
