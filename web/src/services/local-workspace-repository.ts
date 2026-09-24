@@ -138,14 +138,62 @@ export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
 
 type CanvasDocumentPersistPatch = Partial<Pick<CanvasProject, "nodes" | "connections" | "timeline">>;
 
+function sameDocumentValue(left: unknown, right: unknown) {
+    return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
+function revertUnchangedCanvasNodes(
+    previous: CanvasProject["nodes"],
+    attempted: CanvasProject["nodes"],
+    live: CanvasProject["nodes"],
+): CanvasProject["nodes"] {
+    if (sameDocumentValue(live, attempted)) return previous;
+    const previousById = new Map(previous.map((node) => [node.id, node]));
+    const attemptedById = new Map(attempted.map((node) => [node.id, node]));
+    const reverted: CanvasProject["nodes"] = [];
+    for (const node of live) {
+        const before = previousById.get(node.id);
+        const optimistic = attemptedById.get(node.id);
+        if (!before && optimistic) {
+            if (sameDocumentValue(node, optimistic)) continue;
+            reverted.push(node);
+            continue;
+        }
+        if (before && optimistic) {
+            reverted.push(sameDocumentValue(node, optimistic) ? before : node);
+            continue;
+        }
+        reverted.push(node);
+    }
+    return reverted;
+}
+
+function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: CanvasProject, patch: CanvasDocumentPersistPatch): CanvasProject {
+    const next: CanvasProject = { ...current };
+    (Object.keys(patch) as Array<keyof CanvasDocumentPersistPatch>).forEach((key) => {
+        const attempted = patch[key];
+        if (attempted === undefined) return;
+        if (key === "nodes" && Array.isArray(attempted)) {
+            next.nodes = revertUnchangedCanvasNodes(previous.nodes, attempted, current.nodes);
+            return;
+        }
+        if (sameDocumentValue(current[key], attempted)) {
+            (next as Record<string, unknown>)[key] = previous[key];
+        }
+    });
+    return next;
+}
+
 /**
  * Persist a canvas document patch before the caller reports success.
  * Local desktop hydrates from SQLite, so that profile PUTs the Go repository
  * without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
+ * A failed write only reverts patch fields that nobody else changed.
  */
 export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
     const previous = useCanvasStore.getState().openProject(id);
     useCanvasStore.getState().updateProject(id, patch);
+    const attempted = useCanvasStore.getState().openProject(id);
     try {
         if (isLocalWorkspaceMode()) {
             await syncLocalCanvasProjectToBackend(id);
@@ -155,7 +203,12 @@ export async function persistCanvasDocument(id: string, patch: CanvasDocumentPer
     } catch (error) {
         if (previous) {
             useCanvasStore.setState((state) => ({
-                projects: state.projects.map((item) => item.id === id ? previous : item),
+                projects: state.projects.map((item) => {
+                    if (item.id !== id) return item;
+                    const reverted = revertUnchangedCanvasDocumentPatch(item, previous, patch);
+                    if (attempted && item.updatedAt === attempted.updatedAt) reverted.updatedAt = previous.updatedAt;
+                    return reverted;
+                }),
             }));
         }
         throw error;

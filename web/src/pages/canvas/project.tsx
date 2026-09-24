@@ -128,7 +128,7 @@ import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { persistCanvasDocument, persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
-import { bindCanvasNodeResourceAsset, canvasNodesMissingResourceAssetBinding } from "@/lib/canvas/canvas-node-asset";
+import { bindMissingCanvasResourceAssets, canvasNodesMissingResourceAssetBinding } from "@/lib/canvas/canvas-node-asset";
 import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasOperationHistory } from "./use-canvas-operation-history";
@@ -1456,19 +1456,18 @@ function InfiniteCanvasPage() {
         try {
             const applied = await applyGenerationTaskResultToNodes([node], task, node.id);
             if (!applied.node) throw new Error("生成结果无法定位到画布节点");
-            let historyNode = bindCanvasNodeResourceAsset(applied.node, nodesRef.current, useAssetStore.getState().assets);
-            if (canvasNodesMissingResourceAssetBinding([historyNode]).length) {
-                const bound = await ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node: historyNode, source: "canvas-generation", taskId: task.id });
-                historyNode = { ...historyNode, metadata: { ...historyNode.metadata, assetId: bound.assetId } };
-            }
-            if (canvasNodesMissingResourceAssetBinding([historyNode]).length) {
+            const nextNodes = await bindMissingCanvasResourceAssets(
+                [...nodesRef.current, applied.node],
+                useAssetStore.getState().assets,
+                (item) => ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node: item, source: "canvas-generation", taskId: task.id }),
+            );
+            if (canvasNodesMissingResourceAssetBinding(nextNodes).length) {
                 throw new Error("生成结果尚未进入素材库，无法插入画布");
             }
-            const nextNodes = [...nodesRef.current, historyNode];
             await persistCanvasDocument(projectId, { nodes: nextNodes });
             nodesRef.current = nextNodes;
             setNodes(nextNodes);
-            setSelectedNodeIds(new Set([historyNode.id]));
+            setSelectedNodeIds(new Set([applied.node.id]));
             setGenerationHistoryOpen(false);
             message.success("已从生成历史插入到画布");
         } catch (error) {

@@ -40,7 +40,8 @@ describe("LibTV generation history picker", () => {
         const insertStart = project.indexOf("const insertGenerationHistoryTask");
         const insertEnd = project.indexOf("handleReplaceNodeReference", insertStart);
         const insert = project.slice(insertStart, insertEnd);
-        expect(insert).toContain("bindCanvasNodeResourceAsset");
+        expect(insert).toContain("bindMissingCanvasResourceAssets");
+        expect(insert).toContain("[...nodesRef.current, applied.node]");
         expect(insert).toContain("canvasNodesMissingResourceAssetBinding");
         expect(insert).toContain("ensureCanvasNodeAsset");
         expect(insert).toContain("insertingHistoryRef");

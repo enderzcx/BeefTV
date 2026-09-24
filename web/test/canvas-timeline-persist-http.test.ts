@@ -44,11 +44,16 @@ writeFileSync(requestPath, `
 export let puts: Array<{ path: string; body: any }> = [];
 export let putError: Error | null = null;
 export let putGuard = null;
-export const resetPuts = () => { puts = []; putError = null; putGuard = null; };
+export let putGate = Promise.resolve();
+export let putStarted = 0;
+export const resetPuts = () => { puts = []; putError = null; putGuard = null; putGate = Promise.resolve(); putStarted = 0; };
 export const setPutError = (next: Error | null) => { putError = next; };
 export const setPutGuard = (next) => { putGuard = next; };
+export const setPutGate = (next) => { putGate = next; };
 export const http = {
   put: async (path: string, body: any) => {
+    putStarted += 1;
+    await putGate;
     if (putError) throw putError;
     if (putGuard) {
       const guarded = putGuard(path, body);
@@ -339,6 +344,64 @@ describe("persistCanvasDocument http", () => {
         }))).toEqual([
             { title: "旁白", assetId: "asset-owned" },
             { title: "历史音频", assetId: "asset-owned" },
+        ]);
+    });
+
+    it("deferred PUT rejection keeps intervening unrelated edits and drops the optimistic nodes patch", async () => {
+        let rejectPut: (error: Error) => void = () => undefined;
+        request.setPutGate(new Promise<void>((_resolve, reject) => {
+            rejectPut = reject;
+        }));
+        store.resetProjects([{ ...project, nodes: [originalAudioNode], revision: 4 }]);
+        const pending = repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        for (let attempt = 0; attempt < 20 && request.putStarted === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        expect(request.putStarted).toBe(1);
+        store.useCanvasStore.getState().updateProject(project.id, { title: "改名后的画布" });
+        store.useCanvasStore.setState((state: { projects: Array<Record<string, unknown>> }) => ({
+            projects: state.projects.map((item) => item.id === project.id ? { ...item, revision: 9 } : item),
+        }));
+        rejectPut(new Error("画布保存失败，请重试"));
+        let caught: unknown;
+        try {
+            await pending;
+        } catch (error) {
+            caught = error;
+        }
+        expect((caught as Error).message).toBe("画布保存失败，请重试");
+        expect(request.puts).toEqual([]);
+        expect(store.projects[0].title).toBe("改名后的画布");
+        expect(store.projects[0].revision).toBe(9);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白"]);
+    });
+
+    it("deferred PUT rejection keeps in-flight node edits that are not the optimistic insert", async () => {
+        let rejectPut: (error: Error) => void = () => undefined;
+        request.setPutGate(new Promise<void>((_resolve, reject) => {
+            rejectPut = reject;
+        }));
+        store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
+        const pending = repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
+        for (let attempt = 0; attempt < 20 && request.putStarted === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        const editedOriginal = { ...originalAudioNode, title: "旁白改名" };
+        const laterText = {
+            id: "text-later",
+            type: "text",
+            title: "备注",
+            position: { x: 720, y: 0 },
+            width: 240,
+            height: 120,
+            metadata: { content: "飞行中编辑" },
+        };
+        store.useCanvasStore.getState().updateProject(project.id, { nodes: [editedOriginal, historyAudioNode, laterText] });
+        rejectPut(new Error("画布保存失败，请重试"));
+        await pending.catch(() => undefined);
+        expect(store.projects[0].nodes.map((node: { id: string; title: string }) => ({ id: node.id, title: node.title }))).toEqual([
+            { id: "audio-original", title: "旁白改名" },
+            { id: "text-later", title: "备注" },
         ]);
     });
 });

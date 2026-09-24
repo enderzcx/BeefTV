@@ -114,6 +114,35 @@ export function bindCanvasNodeResourceAsset(node: CanvasNodeData, sourceNodes: C
     return { ...node, metadata: { ...node.metadata, assetId: asset.id } };
 }
 
+/**
+ * Stamp every resource-backed node that still lacks an Asset, using the same
+ * owned Asset for the same Resource. Cached unbound siblings stay on the canvas.
+ */
+export async function bindMissingCanvasResourceAssets(
+    nodes: CanvasNodeData[],
+    assets: Asset[],
+    ensure: (node: CanvasNodeData) => Promise<{ assetId: string }>,
+): Promise<CanvasNodeData[]> {
+    const bound = nodes.map((node) => bindCanvasNodeResourceAsset(node, nodes, assets));
+    const missing = canvasNodesMissingResourceAssetBinding(bound);
+    if (!missing.length) return bound;
+
+    const assetIdByResource = new Map<string, string>();
+    for (const node of missing) {
+        const resourceID = canvasNodeResourceId(node);
+        if (!resourceID || assetIdByResource.has(resourceID)) continue;
+        const result = await ensure(node);
+        if (result.assetId) assetIdByResource.set(resourceID, result.assetId);
+    }
+
+    return bound.map((node) => {
+        if (node.metadata?.assetId) return node;
+        const resourceID = canvasNodeResourceId(node);
+        const assetId = resourceID ? assetIdByResource.get(resourceID) : undefined;
+        return assetId ? { ...node, metadata: { ...node.metadata, assetId } } : node;
+    });
+}
+
 /** Resource-backed canvas media must have an Asset binding before the whole snapshot can be synced. */
 export function canvasNodesMissingResourceAssetBinding(nodes: CanvasNodeData[]) {
     return nodes.filter((node) => {
