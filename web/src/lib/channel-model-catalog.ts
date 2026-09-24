@@ -111,7 +111,12 @@ function catalogIsSpeechOrMusic(id: string) {
 }
 
 function isBeefAPICatalogChannel(channel: ModelChannel) {
-    return channel.id === "beefapi" || channel.credentialRef === "beefapi-enterprise" || (channel.baseUrl || "").toLowerCase().includes("enterprise.beefapi.com");
+    if (channel.id === "beefapi" || channel.credentialRef === "beefapi-enterprise") return true;
+    try {
+        return new URL(channel.baseUrl || "").hostname.toLowerCase() === "enterprise.beefapi.com";
+    } catch {
+        return false;
+    }
 }
 
 export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog: ChannelModelCatalogItem[]): ChannelModelProfile[] {
