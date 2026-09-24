@@ -27,7 +27,11 @@ const getState = () => ({
   },
 });
 export const useCanvasStore = { getState, setState: () => {} };
-export const flushCanvasStorePersistence = async () => {};
+export let flushCalls = 0;
+export let flushImpl = async () => {};
+export const setFlushImpl = (next) => { flushImpl = next; };
+export const flushCanvasStorePersistence = async () => { flushCalls += 1; return flushImpl(); };
+export const resetFlush = () => { flushCalls = 0; flushImpl = async () => {}; };
 `);
 writeFileSync(historyPath, "export const useCanvasHistoryStore = { getState: () => ({ recordDeletedProjects: () => {} }) };\n");
 writeFileSync(requestPath, `
@@ -93,6 +97,7 @@ const project = {
 beforeEach(() => {
     store.resetProjects([{ ...project }]);
     request.resetPuts();
+    store.resetFlush();
     mode.setLocalMode(true);
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -114,6 +119,59 @@ describe("persistCanvasTimeline http", () => {
         await repository.persistCanvasTimeline(project.id, timeline);
         expect(request.puts).toEqual([]);
         expect(store.projects[0].timeline.durationMs).toBe(5600);
+    });
+
+    it("local PUT is not blocked by a pending or rejected IndexedDB flush", async () => {
+        store.setFlushImpl(() => new Promise(() => {}));
+        await repository.persistCanvasTimeline(project.id, timeline);
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].body.project.timeline.durationMs).toBe(5600);
+        expect(store.flushCalls).toBe(1);
+
+        request.resetPuts();
+        store.resetFlush();
+        store.resetProjects([{ ...project }]);
+        store.setFlushImpl(async () => {
+            throw new Error("IndexedDB hung");
+        });
+        await repository.persistCanvasTimeline(project.id, timeline);
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].body.project.timeline.clips[0].nodeId).toBe("7vvfM674HnenwTekmj88V");
+    });
+
+    it("hosted profile still awaits flush and does not PUT", async () => {
+        mode.setLocalMode(false);
+        store.setFlushImpl(async () => {
+            throw new Error("IndexedDB hung");
+        });
+        let caught: unknown;
+        try {
+            await repository.persistCanvasTimeline(project.id, timeline);
+        } catch (error) {
+            caught = error;
+        }
+        expect((caught as Error).message).toBe("IndexedDB hung");
+        expect(request.puts).toEqual([]);
+        expect(store.flushCalls).toBe(1);
+
+        store.resetFlush();
+        store.resetProjects([{ ...project }]);
+        let resolveFlush: () => void = () => undefined;
+        store.setFlushImpl(() => new Promise<void>((resolve) => {
+            resolveFlush = resolve;
+        }));
+        let settled = false;
+        const pending = repository.persistCanvasTimeline(project.id, timeline).then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        expect(request.puts).toEqual([]);
+        expect(store.flushCalls).toBe(1);
+        resolveFlush();
+        await pending;
+        expect(settled).toBe(true);
+        expect(request.puts).toEqual([]);
     });
 
     it("rejects when the desktop PUT fails", async () => {

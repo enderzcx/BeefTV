@@ -1,7 +1,5 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { runTimelineDialogSaveAttempt } from "@/components/canvas/canvas-timeline-dialog";
 import { createDefaultTracks, normalizeTimelineProject } from "@/lib/timeline/timeline-tracks";
