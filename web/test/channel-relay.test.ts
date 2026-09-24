@@ -10,7 +10,12 @@ afterEach(() => {
 });
 
 test("Wails custom channels call the configured upstream directly", () => {
-    globalThis.window = { location: { protocol: "wails:" } } as Window & typeof globalThis;
+    const wailsWindow = new EventTarget();
+    Object.defineProperty(wailsWindow, "location", {
+        configurable: true,
+        value: { protocol: "wails:" },
+    });
+    globalThis.window = wailsWindow as Window & typeof globalThis;
 
     const request = channelRequest(
         {
