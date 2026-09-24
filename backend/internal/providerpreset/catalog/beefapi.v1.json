@@ -1,0 +1,9 @@
+{
+  "id": "beefapi",
+  "displayName": "BeefAPI",
+  "baseUrl": "https://enterprise.beefapi.com",
+  "catalogProtocol": "openai",
+  "presetVersion": 1,
+  "pinned": true,
+  "models": []
+}

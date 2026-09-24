@@ -1,0 +1,44 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dir, "../..");
+
+describe("desktop release build contract", () => {
+  test("prepares generated plugin packages before the backend CI suite", () => {
+    const workflow = readFileSync(resolve(root, ".github/workflows/quality.yml"), "utf8");
+    const packageBuild = workflow.indexOf("sh ../plugin-packages/build-packages.sh");
+    const goTest = workflow.indexOf("go test ./...");
+
+    expect(packageBuild).toBeGreaterThan(-1);
+    expect(goTest).toBeGreaterThan(packageBuild);
+  });
+
+  test("locks the release version and injects Go build metadata", () => {
+    const script = readFileSync(resolve(root, "scripts/build-beeftv-release.sh"), "utf8");
+    const version = readFileSync(resolve(root, "VERSION"), "utf8").trim();
+
+    expect(version).toMatch(/^v\d+\.\d+\.\d+/);
+    expect(script).toContain('VERSION_VALUE="$(tr -d');
+    expect(script).toContain('CANVAS_BUILD_VERSION="$VERSION_VALUE"');
+    expect(script).toContain("buildinfo.Version=$VERSION_VALUE");
+    expect(script).toContain("buildinfo.Commit=$COMMIT_VALUE");
+    expect(script).toContain("buildinfo.BuildTime=$BUILD_TIME_VALUE");
+    expect(script).toContain('plutil -replace CFBundleShortVersionString');
+    expect(script).toContain('plutil -replace CFBundleVersion');
+    expect(script).toContain("-clean");
+    expect(script).toContain("-trimpath");
+    expect(script).toContain("wails@v2.16.0 build");
+    expect(script).toContain('Contents/Resources/plugin-packages');
+    expect(script).toContain('"$ROOT_DIR/plugin-packages/"*.beeftv-plugin');
+  });
+
+  test("keeps every source file required by the local release gate", () => {
+    const gate = readFileSync(resolve(root, "scripts/verify-beeftv-local-release.sh"), "utf8");
+    const exporter = readFileSync(resolve(root, "scripts/public-release-export.sh"), "utf8");
+
+    expect(gate).toContain("web/scripts/beeftv-local-network-audit.mjs");
+    expect(existsSync(resolve(root, "web/scripts/beeftv-local-network-audit.mjs"))).toBe(true);
+    expect(exporter).toContain("--include='web/scripts/beeftv-local-network-audit.mjs'");
+  });
+});

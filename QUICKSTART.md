@@ -1,0 +1,35 @@
+# BeefTV 本地桌面版快速开始
+
+BeefTV 桌面版是无需登录的本地优先工作区。项目、画布、素材、任务记录和模型配置默认保存在本机；只有执行生成时，才会按你配置的渠道请求外部模型服务。
+
+## 构建桌面版
+
+环境要求：Go 1.25、Bun，以及 Wails 所需的系统组件。
+
+在仓库根目录执行：
+
+```bash
+BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
+```
+
+macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。首次打开后直接进入本地工作区，不需要注册或登录。
+
+## 配置模型
+
+打开“模型配置”，填写需要使用的文本、图片、视频或音频渠道。API Key 保存在本地工作区配置文件中，不会写入画布、素材或任务数据。
+
+模型请求可能访问外部供应商，但 BeefTV 不会把项目数据同步到 SaaS 存储。素材会先写入本地资源目录，再作为本地资源引用提交给模型渠道。
+
+## 本地开发与验证
+
+需要同时调试前后端时，可参考 `scripts/beeftv-shared-dev.sh`。验证本地发行边界：
+
+```bash
+BEEFTV_GO_DIR=/path/to/go ./scripts/verify-beeftv-local-release.sh
+```
+
+## 数据位置与备份
+
+桌面运行时会在本地工作区保存 SQLite 数据库、资源文件、模型配置和迁移备份。升级迁移前会自动创建数据库备份；如需迁移或恢复，请先退出 BeefTV 并完整复制工作区数据目录。
+
+登录、云存储、团队同步和计费不属于 BeefTV 本地版。以本地能力契约、精简 schema 和发行门禁为准，详见 `docs/local-first-architecture.md`。
