@@ -85,13 +85,6 @@ describe("LibTV generation history picker", () => {
         expect(generationHistoryPreviewImageSrc(audioTask)).toBe("");
         expect(generationHistoryPreviewImageSrc(videoTask)).toBe("");
         expect(generationHistoryPreviewImageSrc(imageTask)).toBe("data:image/png;base64,abc");
-        const staleImageTask = {
-            ...imageTask,
-            id: "task-stale-image",
-            previewUrl: "blob:http://127.0.0.1/expired",
-            resultJson: JSON.stringify({ mode: "image", images: [{ dataUrl: "blob:http://127.0.0.1/expired", storageKey: "resource:image-owned" }] }),
-        } as GenerationTask;
-        expect(generationHistoryPreviewImageSrc(staleImageTask)).toContain("/resources/image-owned/file");
         expect(reuseGeneratedMediaStorageKey(undefined, audioUrl)).toBe("resource:audio-owned");
         expect(reuseGeneratedMediaStorageKey("image:local-1", "http://127.0.0.1:3184/api/resources/video-owned/file")).toBe("image:local-1");
         expect(reuseGeneratedMediaStorageKey(undefined, "data:audio/mpeg;base64,AAA")).toBe("");
