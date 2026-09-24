@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import { assertUsableSegmentOutput, buildRemoveAudioArgs, MUTED_VIDEO_OUTPUT_NAME, SEGMENT_INPUT_NAME } from "../src/lib/canvas/canvas-video-segment-args";
 
-const QA_SOURCE = "/Volumes/ExternalWork/Scratch/beeftv-enterprise-20260924/mac-qa-connect-data/resources/users/3d85020570bfb684fc57a19ab71678c1/video/2026/09/24/fef9656fd70a4843bf4f87e092cbd58c.mp4";
+const QA_SOURCE = process.env.BEEFTV_SEGMENT_QA_MP4 || "";
 
 function commandExists(name: string) {
     const result = spawnSync(name, ["-version"], { encoding: "utf8" });
@@ -75,20 +75,43 @@ describe.skipIf(!hasFfmpeg)("remove-audio ffmpeg args on real media", () => {
         }
     });
 
-    test("QA source full-source mute keeps the 720 square picture stream", () => {
-        if (!existsSync(QA_SOURCE)) return;
+    test("tiny valid clip under 4KiB is accepted and still has a video sample", () => {
+        const dir = mkdtempSync(join(tmpdir(), "beeftv-segment-tiny-"));
+        try {
+            const tiny = join(dir, "tiny.mp4");
+            runFfmpeg(dir, [
+                "-f", "lavfi", "-i", "testsrc=size=16x16:rate=25:duration=0.04",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                tiny,
+            ]);
+            const sourceBytes = readFileSync(tiny);
+            expect(sourceBytes.byteLength).toBeLessThan(4096);
+            assertUsableSegmentOutput(sourceBytes, "video");
+            copyFileSync(tiny, join(dir, SEGMENT_INPUT_NAME));
+            runFfmpeg(dir, buildRemoveAudioArgs("0", "0.04", MUTED_VIDEO_OUTPUT_NAME, { fullSource: true }));
+            const output = join(dir, MUTED_VIDEO_OUTPUT_NAME);
+            const bytes = readFileSync(output);
+            expect(bytes.byteLength).toBeLessThan(4096);
+            assertUsableSegmentOutput(bytes, "video");
+            const info = probe(output);
+            expect(info.streams?.some((stream) => stream.codec_type === "video")).toBe(true);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test.skipIf(!QA_SOURCE)("optional BEEFTV_SEGMENT_QA_MP4 full-source mute keeps a video stream", () => {
+        if (!existsSync(QA_SOURCE)) throw new Error(`BEEFTV_SEGMENT_QA_MP4 指向的文件不存在`);
         const dir = mkdtempSync(join(tmpdir(), "beeftv-segment-qa-"));
         try {
             copyFileSync(QA_SOURCE, join(dir, SEGMENT_INPUT_NAME));
-            runFfmpeg(dir, buildRemoveAudioArgs("0", "6.04", MUTED_VIDEO_OUTPUT_NAME, { fullSource: true }));
+            runFfmpeg(dir, buildRemoveAudioArgs("0", "1", MUTED_VIDEO_OUTPUT_NAME, { fullSource: true }));
             const output = join(dir, MUTED_VIDEO_OUTPUT_NAME);
             const bytes = readFileSync(output);
             assertUsableSegmentOutput(bytes, "video");
-            expect(bytes.byteLength).toBeGreaterThan(400_000);
             const info = probe(output);
-            expect(Number(info.format?.nb_streams)).toBe(1);
-            expect(info.streams?.[0]?.codec_type).toBe("video");
-            expect(Number(info.format?.duration)).toBeGreaterThan(6);
+            expect(info.streams?.some((stream) => stream.codec_type === "video")).toBe(true);
+            expect(Number(info.format?.duration)).toBeGreaterThan(0);
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }

@@ -33,20 +33,6 @@ export function isFullSourceRange(startMs: number, endMs: number, durationMs?: n
     return endMs >= durationMs - 1;
 }
 
-const MIN_VIDEO_OUTPUT_BYTES = 4096;
-const MIN_AUDIO_OUTPUT_BYTES = 256;
-
-function containsFourcc(bytes: Uint8Array, fourcc: string) {
-    const a = fourcc.charCodeAt(0);
-    const b = fourcc.charCodeAt(1);
-    const c = fourcc.charCodeAt(2);
-    const d = fourcc.charCodeAt(3);
-    for (let index = 0; index + 4 <= bytes.length; index += 1) {
-        if (bytes[index] === a && bytes[index + 1] === b && bytes[index + 2] === c && bytes[index + 3] === d) return true;
-    }
-    return false;
-}
-
 function asBytes(output: Uint8Array | string) {
     return typeof output === "string" ? new TextEncoder().encode(output) : output;
 }
@@ -54,10 +40,10 @@ function asBytes(output: Uint8Array | string) {
 export function assertUsableSegmentOutput(output: Uint8Array | string, kind: "video" | "audio") {
     const bytes = asBytes(output);
     if (kind === "audio") {
-        if (bytes.byteLength < MIN_AUDIO_OUTPUT_BYTES) throw new Error("音频提取失败：输出文件为空");
-        return;
+        if (hasIsoBmffTrack(bytes, "soun") || isWaveAudio(bytes) || isMpegAudio(bytes)) return;
+        throw new Error("音频提取失败：输出文件为空");
     }
-    if (bytes.byteLength < MIN_VIDEO_OUTPUT_BYTES || !containsFourcc(bytes, "ftyp") || !containsFourcc(bytes, "mdat")) {
+    if (!hasIsoBmffTrack(bytes, "vide")) {
         throw new Error("无声视频生成失败：输出文件为空或无法解码");
     }
 }
@@ -73,4 +59,99 @@ export function buildRemoveAudioArgs(startSec: string, durationSec: string, outp
 /** 空间裁切视频，坐标和尺寸使用源视频像素值。 */
 export function buildVideoCropArgs(x: number, y: number, width: number, height: number): string[] {
     return ["-i", SEGMENT_INPUT_NAME, "-vf", `crop=${Math.round(width)}:${Math.round(height)}:${Math.round(x)}:${Math.round(y)}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-movflags", "+faststart", CROP_OUTPUT_NAME];
+}
+
+// 可用性看容器结构：ftyp、mdat 载荷、trak 内 vide/soun 且 sample_count>0。
+// 短片可以小于 4KiB；空壳仍带 ftyp/mdat 四字符，不能靠子串扫描。
+
+const ISO_NEST = new Set(["moov", "trak", "mdia", "minf", "stbl", "edts", "dinf", "mvex", "moof", "traf"]);
+const MAX_ISO_BOXES = 8192;
+const MAX_ISO_DEPTH = 16;
+
+type IsoTrack = { handler: string; samples: number };
+
+function u32(bytes: Uint8Array, offset: number) {
+    if (offset + 4 > bytes.byteLength) return 0;
+    return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0);
+}
+
+function ascii4(bytes: Uint8Array, offset: number) {
+    if (offset + 4 > bytes.byteLength) return "";
+    return String.fromCharCode(bytes[offset]!, bytes[offset + 1]!, bytes[offset + 2]!, bytes[offset + 3]!);
+}
+
+function readIsoBox(bytes: Uint8Array, offset: number, end: number) {
+    if (offset + 8 > end) return undefined;
+    let size = u32(bytes, offset);
+    const type = ascii4(bytes, offset + 4);
+    let header = 8;
+    if (size === 1) {
+        if (offset + 16 > end) return undefined;
+        const high = u32(bytes, offset + 8);
+        const low = u32(bytes, offset + 12);
+        if (high > 0x1fffff) return undefined;
+        size = high * 0x100000000 + low;
+        header = 16;
+    } else if (size === 0) {
+        size = end - offset;
+    }
+    if (size < header || offset + size > end) return undefined;
+    return { type, size, start: offset, payloadStart: offset + header, payloadEnd: offset + size };
+}
+
+function inspectIsoBmff(bytes: Uint8Array) {
+    let hasFtyp = false;
+    let mdatPayload = 0;
+    let boxes = 0;
+    const tracks: IsoTrack[] = [];
+
+    const walk = (start: number, end: number, depth: number, track: IsoTrack | null) => {
+        let offset = start;
+        while (offset + 8 <= end && boxes < MAX_ISO_BOXES && depth <= MAX_ISO_DEPTH) {
+            const box = readIsoBox(bytes, offset, end);
+            if (!box) break;
+            boxes += 1;
+            if (box.type === "ftyp") hasFtyp = true;
+            else if (box.type === "mdat") mdatPayload += box.payloadEnd - box.payloadStart;
+            else if (box.type === "trak") {
+                const next: IsoTrack = { handler: "", samples: 0 };
+                tracks.push(next);
+                walk(box.payloadStart, box.payloadEnd, depth + 1, next);
+            } else if (box.type === "hdlr" && track && box.payloadEnd - box.payloadStart >= 12) {
+                track.handler = ascii4(bytes, box.payloadStart + 8);
+            } else if (box.type === "stsz" && track && box.payloadEnd - box.payloadStart >= 12) {
+                track.samples = Math.max(track.samples, u32(bytes, box.payloadStart + 8));
+            } else if (box.type === "stts" && track && box.payloadEnd - box.payloadStart >= 8) {
+                const entryCount = u32(bytes, box.payloadStart + 4);
+                let samples = 0;
+                let cursor = box.payloadStart + 8;
+                for (let index = 0; index < entryCount && cursor + 8 <= box.payloadEnd; index += 1, cursor += 8) {
+                    samples += u32(bytes, cursor);
+                }
+                track.samples = Math.max(track.samples, samples);
+            } else if (ISO_NEST.has(box.type)) {
+                walk(box.payloadStart, box.payloadEnd, depth + 1, track);
+            }
+            offset = box.start + box.size;
+        }
+    };
+
+    walk(0, bytes.byteLength, 0, null);
+    return { hasFtyp, mdatPayload, tracks };
+}
+
+function hasIsoBmffTrack(bytes: Uint8Array, handler: "vide" | "soun") {
+    const first = readIsoBox(bytes, 0, bytes.byteLength);
+    if (!first || first.type !== "ftyp") return false;
+    const info = inspectIsoBmff(bytes);
+    return info.hasFtyp && info.mdatPayload > 0 && info.tracks.some((track) => track.handler === handler && track.samples > 0);
+}
+
+function isWaveAudio(bytes: Uint8Array) {
+    return bytes.byteLength >= 12 && ascii4(bytes, 0) === "RIFF" && ascii4(bytes, 8) === "WAVE";
+}
+
+function isMpegAudio(bytes: Uint8Array) {
+    if (bytes.byteLength >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return true;
+    return bytes.byteLength >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0;
 }

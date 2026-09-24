@@ -55,8 +55,91 @@ describe("buildRemoveAudioArgs", () => {
 });
 
 describe("assertUsableSegmentOutput", () => {
-    test("rejects empty mp4 shells that ffmpeg copy can emit as success", () => {
-        expect(() => assertUsableSegmentOutput(new Uint8Array(261), "video")).toThrow(/为空或无法解码/);
+    test("accepts a structured tiny MP4 with a video sample and mdat payload", () => {
+        const tiny = isoBmff({
+            handler: "vide",
+            samples: 1,
+            mdatPayload: 48,
+        });
+        expect(tiny.byteLength).toBeLessThan(4096);
+        expect(() => assertUsableSegmentOutput(tiny, "video")).not.toThrow();
+    });
+
+    test("rejects the empty ffmpeg copy shell that still contains ftyp and mdat", () => {
+        // Real output-seek+copy artifact: ftyp + empty mdat + moov without trak.
+        const emptyShell = Uint8Array.from(Buffer.from("AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAhtZGF0AAAA1W1vb3YAAABsbXZoZAAAAAAAAAAAAAAAAAAAMAAAAAAAAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABhdWR0YQAAAFltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAACxpbHN0AAAAJKl0b28AAAAcZGF0YQAAAAEAAAAATGF2ZjYzLjEuMTAy", "base64"));
+        expect(emptyShell.byteLength).toBe(261);
+        expect(Buffer.from(emptyShell).includes("ftyp")).toBe(true);
+        expect(Buffer.from(emptyShell).includes("mdat")).toBe(true);
+        expect(() => assertUsableSegmentOutput(emptyShell, "video")).toThrow(/为空或无法解码/);
+    });
+
+    test("rejects junk that only contains ftyp/mdat as substrings", () => {
+        const junk = new TextEncoder().encode(`padding ftyp isom mdat ${"x".repeat(5000)}`);
+        expect(junk.byteLength).toBeGreaterThan(4096);
+        expect(() => assertUsableSegmentOutput(junk, "video")).toThrow(/为空或无法解码/);
+    });
+
+    test("rejects ftyp+mdat without a video sample table", () => {
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 0, mdatPayload: 64 }), "video")).toThrow(/为空或无法解码/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 0 }), "video")).toThrow(/为空或无法解码/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "soun", samples: 1, mdatPayload: 64 }), "video")).toThrow(/为空或无法解码/);
+    });
+
+    test("audio accepts a soun track or a WAVE/MPEG header, not an empty buffer", () => {
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "soun", samples: 1, mdatPayload: 32 }), "audio")).not.toThrow();
+        expect(() => assertUsableSegmentOutput(waveHeader(), "audio")).not.toThrow();
+        expect(() => assertUsableSegmentOutput(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), "audio")).not.toThrow();
         expect(() => assertUsableSegmentOutput(new Uint8Array(128), "audio")).toThrow(/输出文件为空/);
+        expect(() => assertUsableSegmentOutput(isoBmff({ handler: "vide", samples: 1, mdatPayload: 32 }), "audio")).toThrow(/输出文件为空/);
     });
 });
+
+function isoBmff(options: { handler: "vide" | "soun"; samples: number; mdatPayload: number }) {
+    const hdlr = new Uint8Array(24);
+    writeAscii(hdlr, 8, options.handler);
+    const stsz = new Uint8Array(12);
+    new DataView(stsz.buffer).setUint32(8, options.samples);
+    const stts = new Uint8Array(16);
+    new DataView(stts.buffer).setUint32(4, 1);
+    new DataView(stts.buffer).setUint32(8, options.samples);
+    const mdat = new Uint8Array(options.mdatPayload);
+    return concat([
+        box("ftyp", new TextEncoder().encode("isom")),
+        box("mdat", mdat),
+        box("moov", box("trak", box("mdia", concat([
+            box("hdlr", hdlr),
+            box("minf", box("stbl", concat([box("stsz", stsz), box("stts", stts)]))),
+        ])))),
+    ]);
+}
+
+function waveHeader() {
+    const bytes = new Uint8Array(44);
+    writeAscii(bytes, 0, "RIFF");
+    writeAscii(bytes, 8, "WAVE");
+    writeAscii(bytes, 12, "fmt ");
+    return bytes;
+}
+
+function box(type: string, payload: Uint8Array) {
+    const bytes = new Uint8Array(8 + payload.byteLength);
+    new DataView(bytes.buffer).setUint32(0, bytes.byteLength);
+    writeAscii(bytes, 4, type);
+    bytes.set(payload, 8);
+    return bytes;
+}
+
+function concat(parts: Uint8Array[]) {
+    const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0));
+    let offset = 0;
+    for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.byteLength;
+    }
+    return bytes;
+}
+
+function writeAscii(bytes: Uint8Array, offset: number, value: string) {
+    for (let index = 0; index < value.length; index += 1) bytes[offset + index] = value.charCodeAt(index);
+}
