@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+// Use the explicit Node renderer so Bun cannot select the browser server
+// build when another parallel test has installed partial DOM globals.
+import { renderToStaticMarkup } from "react-dom/server.node";
 import { Hand, MousePointer2 } from "lucide-react";
 
 import { FloatingDock } from "@/components/ui/aceternity/floating-dock";

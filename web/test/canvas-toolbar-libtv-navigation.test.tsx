@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { renderToStaticMarkup } from "react-dom/server";
+// Use the explicit Node renderer so Bun cannot select the browser server
+// build when another parallel test has installed partial DOM globals.
+import { renderToStaticMarkup } from "react-dom/server.node";
 
 import { CanvasModeMenu, createCanvasModeDockCommand } from "@/components/canvas/canvas-toolbar";
 
