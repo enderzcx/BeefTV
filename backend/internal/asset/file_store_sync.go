@@ -2,6 +2,13 @@
 
 package asset
 
+import "os"
+
 func syncDirectory(path string) error {
-	return syncDirectoryHandle(path)
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
