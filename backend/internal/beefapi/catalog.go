@@ -3,6 +3,7 @@ package beefapi
 import (
 	"encoding/json"
 	"strings"
+	"unicode"
 
 	"infinite-canvas/backend/internal/workspace"
 )
@@ -31,11 +32,16 @@ func applyCatalog(store *workspace.ProviderConfig, models []CatalogModel, previo
 			profile["displayName"] = model.DisplayName
 		}
 		capability, protocol := catalogCapabilityAndProtocol(model)
-		if capability != "" {
-			profile["capability"] = capability
-		}
-		if protocol != "" {
-			profile["protocol"] = protocol
+		if catalogClearsGeneration(model) {
+			profile["capability"] = ""
+			profile["protocol"] = ""
+		} else {
+			if capability != "" {
+				profile["capability"] = capability
+			}
+			if protocol != "" {
+				profile["protocol"] = protocol
+			}
 		}
 		nextProfiles = append(nextProfiles, profile)
 	}
@@ -116,14 +122,13 @@ func catalogProtocol(model CatalogModel) string {
 func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol string) {
 	id := strings.ToLower(strings.TrimSpace(model.ID))
 	modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
-	endpoints := make([]string, 0, len(model.SupportedEndpointTypes))
-	for _, endpoint := range model.SupportedEndpointTypes {
-		if item := strings.ToLower(strings.TrimSpace(endpoint)); item != "" {
-			endpoints = append(endpoints, item)
-		}
-	}
-	if catalogIsTranscription(id, endpoints) {
+	endpoints := catalogEndpoints(model)
+	if catalogClearsGeneration(model) {
 		return "", ""
+	}
+	switch modelType {
+	case "text", "image", "video", "audio":
+		capability = modelType
 	}
 	type mapping struct {
 		capability string
@@ -138,39 +143,94 @@ func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol stri
 		{capability: "text", protocol: "claude-api", endpoints: []string{"anthropic", "messages"}},
 		{capability: "text", protocol: "google-gemini-generate-content", endpoints: []string{"gemini"}},
 	} {
-		if containsAnyString(endpoints, item.endpoints) {
-			return item.capability, item.protocol
+		if !containsAnyString(endpoints, item.endpoints) {
+			continue
+		}
+		if capability == "" {
+			capability = item.capability
+		}
+		if protocol == "" && (capability == item.capability || capability == "") {
+			protocol = item.protocol
 		}
 	}
-	// BeefAPI /v1/models often lists speech/music with the generic "openai"
-	// chat endpoint type. Those models still speak POST /v1/audio/speech.
-	if catalogIsSpeechOrMusic(id) || modelType == "audio" {
+	// BeefAPI-only name fallback: /v1/models often tags MiniMax speech/music as
+	// generic openai. Use it only when the catalog did not already set a type.
+	if capability == "" && protocol == "" && catalogIsSpeechOrMusic(id) {
 		return "audio", "openai-audio"
 	}
-	if containsAnyString(endpoints, []string{"openai", "chat.completions"}) || modelType == "text" {
-		return "text", "chat-completion"
+	if capability == "audio" && protocol == "" && (catalogIsSpeechOrMusic(id) || modelType == "audio") {
+		protocol = "openai-audio"
 	}
-	switch modelType {
-	case "image":
-		return "image", "openai-image"
-	case "video":
-		return "video", "openai-videos"
+	if containsAnyString(endpoints, []string{"openai", "chat.completions"}) {
+		if capability == "" {
+			capability = "text"
+		}
+		if protocol == "" && capability == "text" {
+			protocol = "chat-completion"
+		}
 	}
-	return "", ""
+	if protocol == "" {
+		switch capability {
+		case "image":
+			protocol = "openai-image"
+		case "video":
+			protocol = "openai-videos"
+		case "audio":
+			protocol = "openai-audio"
+		case "text":
+			protocol = "chat-completion"
+		}
+	}
+	return capability, protocol
 }
 
-func catalogIsTranscription(id string, endpoints []string) bool {
+func catalogEndpoints(model CatalogModel) []string {
+	endpoints := make([]string, 0, len(model.SupportedEndpointTypes))
+	for _, endpoint := range model.SupportedEndpointTypes {
+		if item := strings.ToLower(strings.TrimSpace(endpoint)); item != "" {
+			endpoints = append(endpoints, item)
+		}
+	}
+	return endpoints
+}
+
+func catalogClearsGeneration(model CatalogModel) bool {
+	id := strings.ToLower(strings.TrimSpace(model.ID))
+	modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
+	endpoints := catalogEndpoints(model)
 	if containsAnyString(endpoints, []string{"audio.transcriptions", "audio-transcriptions", "transcriptions"}) {
 		return true
 	}
-	return strings.Contains(id, "asr") || strings.Contains(id, "transcri") || strings.Contains(id, "whisper") || strings.Contains(id, "stt")
+	if modelType != "" && modelType != "audio" {
+		return false
+	}
+	return catalogIsTranscriptionName(id)
+}
+
+func catalogIsTranscriptionName(id string) bool {
+	return catalogHasNameToken(id, "asr", "stt", "whisper", "transcription", "transcriptions", "transcribe")
 }
 
 func catalogIsSpeechOrMusic(id string) bool {
-	if catalogIsTranscription(id, nil) {
+	if catalogIsTranscriptionName(id) {
 		return false
 	}
-	return strings.Contains(id, "speech") || strings.Contains(id, "tts") || strings.Contains(id, "music")
+	return catalogHasNameToken(id, "speech", "tts", "music")
+}
+
+func catalogHasNameToken(id string, tokens ...string) bool {
+	want := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		want[token] = true
+	}
+	for _, part := range strings.FieldsFunc(strings.ToLower(strings.TrimSpace(id)), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	}) {
+		if want[part] {
+			return true
+		}
+	}
+	return false
 }
 
 func containsAnyString(values, candidates []string) bool {

@@ -31,6 +31,12 @@ func TestCatalogCapabilityMapsBeefAPIEndpointTypes(t *testing.T) {
 		{id: "hy-asr-3.0-preview", endpoints: []string{"audio.transcriptions"}, wantCap: "", wantProto: ""},
 		{id: "gpt-image-2", endpoints: []string{"image-generation"}, wantCap: "image", wantProto: "openai-image"},
 		{id: "seedance-2.0", endpoints: []string{"openai-video"}, wantCap: "video", wantProto: "openai-videos"},
+		{id: "explicit-image", modelType: "image", endpoints: []string{"openai"}, wantCap: "image", wantProto: "openai-image"},
+		{id: "explicit-video", modelType: "video", endpoints: []string{"openai"}, wantCap: "video", wantProto: "openai-videos"},
+		{id: "speech-chat", modelType: "text", endpoints: []string{"openai"}, wantCap: "text", wantProto: "chat-completion"},
+		{id: "speech-image", modelType: "image", endpoints: []string{"openai"}, wantCap: "image", wantProto: "openai-image"},
+		{id: "classr-model", endpoints: []string{"openai"}, wantCap: "text", wantProto: "chat-completion"},
+		{id: "speechify-bot", endpoints: []string{"openai"}, wantCap: "text", wantProto: "chat-completion"},
 	}
 	for _, test := range cases {
 		capability, protocol := catalogCapabilityAndProtocol(CatalogModel{ID: test.id, ModelType: test.modelType, SupportedEndpointTypes: test.endpoints})

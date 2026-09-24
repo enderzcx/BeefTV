@@ -130,6 +130,30 @@ describe("public channel model catalog", () => {
         expect(merged.modelProfiles?.find((item) => item.model === "hy-asr-3.0-preview")?.capability).toBeUndefined();
     });
 
+    test("preserves explicit custom-channel profiles on speech-named and ASR-named models", () => {
+        const channel = createModelChannel({
+            id: "studio",
+            name: "工作室渠道",
+            baseUrl: "https://api.example.com",
+            models: ["speech-helper", "hy-asr-3.0-preview", "classr-notes"],
+            modelProfiles: [
+                { model: "speech-helper", capability: "image", protocol: "openai-image" },
+                { model: "hy-asr-3.0-preview", capability: "text", protocol: "chat-completion" },
+                { model: "classr-notes", capability: "text", protocol: "openai-response" },
+            ],
+        });
+        const profiles = mergeFetchedChannelModelProfiles(channel, [
+            { id: "speech-helper", supportedEndpointTypes: ["openai"] },
+            { id: "hy-asr-3.0-preview", supportedEndpointTypes: ["openai"] },
+            { id: "classr-notes", supportedEndpointTypes: ["openai"] },
+        ]);
+        expect(profiles).toEqual(expect.arrayContaining([
+            expect.objectContaining({ model: "speech-helper", capability: "image", protocol: "openai-image" }),
+            expect.objectContaining({ model: "hy-asr-3.0-preview", capability: "text", protocol: "chat-completion" }),
+            expect.objectContaining({ model: "classr-notes", capability: "text", protocol: "openai-response" }),
+        ]));
+    });
+
     test("preserves an explicitly configured BeefAPI text protocol", () => {
         const channel = createModelChannel({
             id: "beefapi",

@@ -529,8 +529,13 @@ function isImageModelName(model: string) {
 }
 
 function isTranscriptionModelName(model: string) {
-    const value = modelOptionName(model).toLowerCase();
-    return value.includes("asr") || value.includes("transcri") || value.includes("whisper") || /(^|[^a-z])stt([^a-z]|$)/.test(value);
+    const parts = new Set(
+        modelOptionName(model)
+            .toLowerCase()
+            .split(/[^a-z0-9]+/u)
+            .filter(Boolean),
+    );
+    return ["asr", "stt", "whisper", "transcription", "transcriptions", "transcribe"].some((token) => parts.has(token));
 }
 
 function isAudioModelName(model: string) {
@@ -797,17 +802,22 @@ function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
     }
     for (const model of models.filter(isAudioModelName)) {
         const current = existing.get(model);
+        if (current?.capability && current.capability !== "audio" && current.capability !== "text") continue;
         existing.set(model, {
             ...(current || {}),
             model,
             capability: "audio",
-            protocol: current?.protocol && modelProtocolCapability(current.protocol) === "audio" ? current.protocol : "openai-audio",
+            protocol: current?.protocol && current.capability === "audio" ? current.protocol : "openai-audio",
         });
     }
     for (const model of models.filter(isTranscriptionModelName)) {
         const current = existing.get(model);
         if (!current) continue;
-        const { protocol: _protocol, capability: _capability, capabilityConfig: _capabilityConfig, ...rest } = current;
+        if (current.capability === "image" || current.capability === "video") continue;
+        const rest = { ...current };
+        delete rest.protocol;
+        delete rest.capability;
+        delete rest.capabilityConfig;
         existing.set(model, { ...rest, model });
     }
     for (const model of models.filter(isVideoModelName)) {

@@ -61,7 +61,10 @@ export function sanitizeChannelModelCatalogItem(value: unknown): ChannelModelCat
     });
 }
 
-export function catalogModelMapping(item: Pick<ChannelModelCatalogItem, "id" | "modelType" | "supportedEndpointTypes">): {
+export function catalogModelMapping(
+    item: Pick<ChannelModelCatalogItem, "id" | "modelType" | "supportedEndpointTypes">,
+    options: { providerNameFallback?: boolean } = {},
+): {
     capability?: ChannelModelProfile["capability"];
     protocol?: ModelProtocol;
     skipGeneration?: boolean;
@@ -69,21 +72,46 @@ export function catalogModelMapping(item: Pick<ChannelModelCatalogItem, "id" | "
     const id = item.id.trim().toLowerCase();
     const modelType = String(item.modelType || "").trim().toLowerCase();
     const endpoints = (item.supportedEndpointTypes || []).map((value) => value.trim().toLowerCase()).filter(Boolean);
-    if (catalogIsTranscription(id, endpoints)) return { skipGeneration: true };
-    if (catalogIsSpeechOrMusic(id) || endpoints.some((endpoint) => endpoint === "audio.speech" || endpoint === "audio-speech") || modelType === "audio") {
+    if (endpoints.some((endpoint) => endpoint === "audio.transcriptions" || endpoint === "audio-transcriptions" || endpoint === "transcriptions")) {
+        return { skipGeneration: true };
+    }
+    if (options.providerNameFallback && catalogIsTranscriptionName(id) && (!modelType || modelType === "audio")) {
+        return { skipGeneration: true };
+    }
+    if (endpoints.some((endpoint) => endpoint === "audio.speech" || endpoint === "audio-speech")) {
+        return { capability: "audio", protocol: "openai-audio" };
+    }
+    if (modelType === "audio") return { capability: "audio", protocol: "openai-audio" };
+    if (options.providerNameFallback && !modelType && catalogIsSpeechOrMusic(id)) {
         return { capability: "audio", protocol: "openai-audio" };
     }
     return {};
 }
 
-function catalogIsTranscription(id: string, endpoints: string[]) {
-    if (endpoints.some((endpoint) => endpoint === "audio.transcriptions" || endpoint === "audio-transcriptions" || endpoint === "transcriptions")) return true;
-    return id.includes("asr") || id.includes("transcri") || id.includes("whisper") || id.includes("stt");
+function catalogNameTokens(id: string) {
+    return id
+        .trim()
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .filter(Boolean);
+}
+
+function catalogHasNameToken(id: string, tokens: string[]) {
+    const parts = new Set(catalogNameTokens(id));
+    return tokens.some((token) => parts.has(token));
+}
+
+function catalogIsTranscriptionName(id: string) {
+    return catalogHasNameToken(id, ["asr", "stt", "whisper", "transcription", "transcriptions", "transcribe"]);
 }
 
 function catalogIsSpeechOrMusic(id: string) {
-    if (catalogIsTranscription(id, [])) return false;
-    return id.includes("speech") || id.includes("tts") || id.includes("music");
+    if (catalogIsTranscriptionName(id)) return false;
+    return catalogHasNameToken(id, ["speech", "tts", "music"]);
+}
+
+function isBeefAPICatalogChannel(channel: ModelChannel) {
+    return channel.id === "beefapi" || channel.credentialRef === "beefapi-enterprise" || (channel.baseUrl || "").toLowerCase().includes("enterprise.beefapi.com");
 }
 
 export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog: ChannelModelCatalogItem[]): ChannelModelProfile[] {
@@ -91,7 +119,7 @@ export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog:
     const next: ChannelModelProfile[] = [];
     for (const item of catalog) {
         const existing = existingByModel.get(item.id);
-        const mapped = catalogModelMapping(item);
+        const mapped = catalogModelMapping(item, { providerNameFallback: isBeefAPICatalogChannel(channel) });
         const inferredProtocol = mapped.protocol || protocolForModelCatalog(item.supportedEndpointTypes);
         const inferredCapability = mapped.capability || modelProtocolCapability(inferredProtocol) || item.modelType;
         if (mapped.skipGeneration) {
