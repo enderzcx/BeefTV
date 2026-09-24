@@ -153,7 +153,7 @@ func (s *FileStore) path(objectKey string) (string, error) {
 	return filepath.Join(s.root, clean), nil
 }
 
-func syncDirectory(path string) error {
+func syncDirectoryHandle(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {
 		return err
