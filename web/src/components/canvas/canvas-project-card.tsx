@@ -1,11 +1,12 @@
 import { Check, Clapperboard, CloudUpload, Download, FileText, Frame, HardDriveUpload, Image as ImageIcon, MoreHorizontal, Music2, Pencil, Plus, Settings2, Sparkles, Trash2, Video, Workflow, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Dropdown, Input } from "antd";
+import { App, Dropdown, Input } from "antd";
 
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
+import { reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -31,6 +32,7 @@ export function CanvasCreateCard({ disabled, onClick }: { disabled?: boolean; on
 }
 
 export function CanvasProjectCard({ project, projectName, variant = "library", readOnly = false, footer }: { project: CanvasProject; projectName?: string; variant?: "library" | "recent"; readOnly?: boolean; footer?: ReactNode }) {
+    const { message } = App.useApp();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const renameProject = useCanvasStore((state) => state.renameProject);
@@ -117,7 +119,7 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
                                 menu={{
                                     onClick: ({ domEvent }) => domEvent.stopPropagation(),
                                     items: [
-                                        { key: "export", icon: <Download className="size-3.5" />, label: "导出画布", onClick: () => void exportCanvasProjects([project], project.title || "画布") },
+                                        { key: "export", icon: <Download className="size-3.5" />, label: "导出画布", onClick: () => void reportOwnedMediaSave(message, exportCanvasProjects([project], project.title || "画布")) },
                                         { type: "divider" },
                                         { key: "delete", danger: true, icon: <Trash2 className="size-3.5" />, label: "删除", onClick: () => setDeleteIds([project.id]) },
                                     ],

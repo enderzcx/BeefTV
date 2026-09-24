@@ -4,9 +4,13 @@ import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 
 export type OwnedMediaSaveResult = "saved" | "cancelled";
 
+export const MAX_OWNED_ARTIFACT_BYTES = 256 * 1024 * 1024;
+
 export function isWailsNativeShell() {
     if (typeof window === "undefined") return false;
-    return window.location?.protocol === "wails:" || typeof window.go?.main?.DesktopApp?.SaveOwnedMedia === "function";
+    return window.location?.protocol === "wails:"
+        || typeof window.go?.main?.DesktopApp?.SaveOwnedMedia === "function"
+        || typeof window.go?.main?.DesktopApp?.SaveOwnedArtifact === "function";
 }
 
 export async function downloadOwnedOrBrowserMedia(options: {
@@ -26,6 +30,20 @@ export async function downloadOwnedOrBrowserMedia(options: {
     const browserUrl = options.browserUrl?.trim();
     if (!browserUrl) throw new Error("没有可导出的文件");
     saveAs(browserUrl, fileName);
+    return "saved";
+}
+
+export async function saveOwnedOrBrowserBlob(fileName: string, blob: Blob): Promise<OwnedMediaSaveResult> {
+    const name = sanitizeDownloadFileName(fileName, "未命名导出");
+    if (isWailsNativeShell()) {
+        if (blob.size > MAX_OWNED_ARTIFACT_BYTES) throw new Error("导出包太大，请减少所选内容后再导出");
+        const save = window.go?.main?.DesktopApp?.SaveOwnedArtifact;
+        if (!save) throw new Error("当前应用还不能把文件存到所选位置");
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const saved = await save(name, Array.from(bytes));
+        return saved ? "saved" : "cancelled";
+    }
+    saveAs(blob, name);
     return "saved";
 }
 

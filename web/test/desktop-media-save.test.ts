@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import { configureApiRuntime } from "@/services/api/request";
-import { downloadOwnedOrBrowserMedia, isWailsNativeShell } from "@/services/desktop-media-save";
+import { downloadOwnedOrBrowserMedia, isWailsNativeShell, saveOwnedOrBrowserBlob } from "@/services/desktop-media-save";
 import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 
 const originalWindow = globalThis.window;
@@ -81,7 +81,37 @@ describe("native media save", () => {
         expect(nodeEditor).not.toContain("saveAs(");
         expect(assets).toContain("downloadOwnedOrBrowserMedia");
         expect(projectAssets).toContain("downloadOwnedOrBrowserMedia");
-        expect(readFileSync(resolve(import.meta.dir, "../src/services/desktop-runtime.ts"), "utf8")).toContain("SaveOwnedMedia");
-        expect(readFileSync(resolve(import.meta.dir, "../src/services/desktop-media-save.ts"), "utf8")).toContain("saveAs(browserUrl, fileName)");
+        const runtime = readFileSync(resolve(import.meta.dir, "../src/services/desktop-runtime.ts"), "utf8");
+        expect(runtime).toContain("SaveOwnedMedia");
+        expect(runtime).toContain("SaveOwnedArtifact");
+        const helper = readFileSync(resolve(import.meta.dir, "../src/services/desktop-media-save.ts"), "utf8");
+        expect(helper).toContain("saveAs(browserUrl, fileName)");
+        expect(helper).toContain("SaveOwnedArtifact");
+        expect(readFileSync(resolve(import.meta.dir, "../src/lib/canvas/canvas-export.ts"), "utf8")).toContain("saveOwnedOrBrowserBlob");
+        expect(readFileSync(resolve(import.meta.dir, "../src/pages/assets/asset-transfer.ts"), "utf8")).toContain("saveOwnedOrBrowserBlob");
+        expect(readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-timeline-dialog.tsx"), "utf8")).toContain("saveAs(blob");
+    });
+
+    test("native ZIP artifacts use the bounded Wails save binding", async () => {
+        const calls: Array<[string, number[]]> = [];
+        Object.assign(globalThis, {
+            window: {
+                location: { protocol: "wails:" },
+                go: {
+                    main: {
+                        DesktopApp: {
+                            SaveOwnedArtifact: async (fileName: string, data: number[]) => {
+                                calls.push([fileName, data]);
+                                return true;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "application/zip" });
+        expect(await saveOwnedOrBrowserBlob("画布.zip", blob)).toBe("saved");
+        expect(calls[0]?.[0]).toBe("画布.zip");
+        expect(calls[0]?.[1]).toEqual([1, 2, 3]);
     });
 });

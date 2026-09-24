@@ -11,7 +11,6 @@ import { WorkspaceState } from "@/components/layout/workspace-state";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 import { Switch } from "@/components/ui/base/switch";
-import { saveAs } from "file-saver";
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import { downloadOwnedOrBrowserMedia, reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
@@ -533,7 +532,7 @@ export default function AssetsPage() {
             message.warning("暂无素材可导出");
             return;
         }
-        await exportAssets(validAssets);
+        await reportOwnedMediaSave(message, exportAssets(validAssets));
     };
 
     const importAssetZip = async (file?: File) => {
@@ -638,7 +637,7 @@ export default function AssetsPage() {
 
     const exportSelectedAssets = async () => {
         if (!selectedAssets.length) return;
-        await exportAssets(selectedAssets);
+        await reportOwnedMediaSave(message, exportAssets(selectedAssets));
     };
 
     const confirmBatchDelete = async () => {

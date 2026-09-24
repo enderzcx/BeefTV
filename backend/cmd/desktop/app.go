@@ -109,6 +109,18 @@ func (a *DesktopApp) RuntimeConfig() DesktopRuntimeConfig {
 }
 
 func (a *DesktopApp) SaveOwnedMedia(fileName string, resourceID string) (bool, error) {
+	return a.saveToChosenPath(fileName, func(path string) error {
+		return a.copyMedia(resourceID, path)
+	})
+}
+
+func (a *DesktopApp) SaveOwnedArtifact(fileName string, data []byte) (bool, error) {
+	return a.saveToChosenPath(fileName, func(path string) error {
+		return bootstrap.WriteOwnedArtifact(path, data)
+	})
+}
+
+func (a *DesktopApp) saveToChosenPath(fileName string, write func(path string) error) (bool, error) {
 	ctx, err := a.dialogContext()
 	if err != nil {
 		return false, err
@@ -123,7 +135,7 @@ func (a *DesktopApp) SaveOwnedMedia(fileName string, resourceID string) (bool, e
 	if err := ctx.Err(); err != nil {
 		return false, errors.New("应用已关闭，无法保存文件")
 	}
-	if err := a.copyMedia(resourceID, path); err != nil {
+	if err := write(path); err != nil {
 		return false, err
 	}
 	return true, nil

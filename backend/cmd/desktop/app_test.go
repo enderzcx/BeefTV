@@ -148,7 +148,7 @@ func TestDesktopAppBoundMethodsStayTiny(t *testing.T) {
 		names = append(names, typ.Method(i).Name)
 	}
 	sort.Strings(names)
-	if !reflect.DeepEqual(names, []string{"RuntimeConfig", "SaveOwnedMedia"}) {
+	if !reflect.DeepEqual(names, []string{"RuntimeConfig", "SaveOwnedArtifact", "SaveOwnedMedia"}) {
 		t.Fatalf("bound methods = %v", names)
 	}
 }
@@ -267,6 +267,87 @@ func TestSaveOwnedMediaRejectsUnownedResourceID(t *testing.T) {
 	}
 }
 
+func TestSaveOwnedMediaKeepsExistingDestWhenCopyFails(t *testing.T) {
+	app := newDesktopApp(t.TempDir())
+	app.wailsCtx = context.Background()
+	dest := filepath.Join(t.TempDir(), "keep.bin")
+	if err := os.WriteFile(dest, []byte("ORIGINAL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.chooseSavePath = func(context.Context, string) (string, error) { return dest, nil }
+	app.copyOwnedMedia = func(string, string) error { return errors.New("无法写出文件") }
+	saved, err := app.SaveOwnedMedia("keep.bin", "owned-id")
+	if saved || err == nil {
+		t.Fatalf("save = saved:%v err:%v", saved, err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ORIGINAL" {
+		t.Fatalf("dest = %q", got)
+	}
+}
+
+func TestSaveOwnedMediaKeepsSourceWhenDestIsSameFile(t *testing.T) {
+	app := newDesktopApp(t.TempDir())
+	app.startup(context.Background())
+	defer app.shutdown(context.Background())
+	payload := []byte("store-original")
+	resourceID := uploadDesktopResource(t, app, payload)
+	source := desktopResourcePath(t, app, resourceID)
+	app.chooseSavePath = func(context.Context, string) (string, error) { return source, nil }
+	if _, err := app.SaveOwnedMedia("saved.bin", resourceID); err == nil {
+		t.Fatal("expected same-file export to be rejected")
+	}
+	got, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("source = %q", got)
+	}
+}
+
+func TestSaveOwnedArtifactWritesChosenPath(t *testing.T) {
+	app := newDesktopApp(t.TempDir())
+	app.wailsCtx = context.Background()
+	dest := filepath.Join(t.TempDir(), "pack.zip")
+	if err := os.WriteFile(dest, []byte("OLD-ZIP"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.chooseSavePath = func(context.Context, string) (string, error) { return dest, nil }
+	saved, err := app.SaveOwnedArtifact("pack.zip", []byte("PK-NEW"))
+	if err != nil || !saved {
+		t.Fatalf("save = saved:%v err:%v", saved, err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "PK-NEW" {
+		t.Fatalf("dest = %q", got)
+	}
+}
+
+func TestSaveOwnedArtifactCancelLeavesDest(t *testing.T) {
+	app := newDesktopApp(t.TempDir())
+	app.wailsCtx = context.Background()
+	dest := filepath.Join(t.TempDir(), "pack.zip")
+	if err := os.WriteFile(dest, []byte("OLD-ZIP"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.chooseSavePath = func(context.Context, string) (string, error) { return "", nil }
+	saved, err := app.SaveOwnedArtifact("pack.zip", []byte("PK-NEW"))
+	if err != nil || saved {
+		t.Fatalf("cancel = saved:%v err:%v", saved, err)
+	}
+	got, _ := os.ReadFile(dest)
+	if string(got) != "OLD-ZIP" {
+		t.Fatalf("dest = %q", got)
+	}
+}
+
 func uploadDesktopResource(t *testing.T, app *DesktopApp, payload []byte) string {
 	t.Helper()
 	var body bytes.Buffer
@@ -306,4 +387,29 @@ func uploadDesktopResource(t *testing.T, app *DesktopApp, payload []byte) string
 		t.Fatalf("upload envelope = %#v", envelope)
 	}
 	return envelope.Data.Resource.ID
+}
+
+func desktopResourcePath(t *testing.T, app *DesktopApp, resourceID string) string {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/api/resources/"+resourceID, nil)
+	response := httptest.NewRecorder()
+	desktopAssetHandler{app: app}.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("resource status = %d body=%s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Code int `json:"code"`
+		Data struct {
+			Resource struct {
+				ObjectKey string `json:"objectKey"`
+			} `json:"resource"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Code != 0 || envelope.Data.Resource.ObjectKey == "" {
+		t.Fatalf("resource envelope = %#v", envelope)
+	}
+	return filepath.Join(app.dataDir, "resources", filepath.FromSlash(envelope.Data.Resource.ObjectKey))
 }

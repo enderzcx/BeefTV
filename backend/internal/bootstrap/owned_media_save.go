@@ -1,14 +1,22 @@
 package bootstrap
 
 import (
+	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
+	"unicode/utf8"
+
+	localasset "infinite-canvas/backend/internal/asset"
+	"infinite-canvas/backend/internal/model"
 )
+
+const maxSaveFileNameBytes = 180
+const maxOwnedArtifactBytes = 256 << 20
 
 func (r *Runtime) CopyOwnedResourceTo(resourceID, destPath string) error {
 	if r == nil || r.service == nil {
@@ -26,33 +34,113 @@ func (r *Runtime) CopyOwnedResourceTo(resourceID, destPath string) error {
 	if err != nil {
 		return err
 	}
-	_, body, err := r.service.OpenResource(owner.ID, id)
+	resource, err := r.service.Resource(owner.ID, id)
+	if err != nil {
+		return errors.New("没有可导出的本机文件")
+	}
+	src, err := openLocalOwnedResourceFile(resource, r.cfg.DataDir)
 	if err != nil {
 		return err
 	}
-	defer body.Close()
-	file, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	defer src.Close()
+	return writeOwnedFileAtomically(dest, src, src)
+}
+
+func WriteOwnedArtifact(dest string, data []byte) error {
+	if len(data) == 0 {
+		return errors.New("没有可导出的文件")
+	}
+	if len(data) > maxOwnedArtifactBytes {
+		return errors.New("导出包太大，请减少所选内容后再导出")
+	}
+	dest, err := sanitizeSaveDestination(dest)
 	if err != nil {
-		return fmt.Errorf("无法写入所选位置")
+		return err
 	}
-	copyErr := copyOwnedResourceBody(file, body)
-	if closeErr := file.Close(); copyErr == nil {
-		copyErr = closeErr
+	return writeOwnedFileAtomically(dest, bytes.NewReader(data), nil)
+}
+
+func openLocalOwnedResourceFile(resource *model.Resource, dataDir string) (*os.File, error) {
+	if resource == nil || resource.Provider != "local" || resource.Status != model.ResourceStatusReady {
+		return nil, errors.New("没有可导出的本机文件")
 	}
-	if copyErr != nil {
-		_ = os.Remove(dest)
-		return copyErr
+	return localasset.NewFileStore(dataDir).Open(resource.ObjectKey)
+}
+
+func writeOwnedFileAtomically(dest string, body io.Reader, src *os.File) (returnErr error) {
+	if err := rejectSameFile(src, dest); err != nil {
+		return err
+	}
+	directory := filepath.Dir(dest)
+	temporary, err := os.CreateTemp(directory, ".beeftv-save-*")
+	if err != nil {
+		return errors.New("无法写入所选位置")
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		if returnErr != nil {
+			_ = temporary.Close()
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
+		return errors.New("无法写入所选位置")
+	}
+	if _, err := io.Copy(temporary, body); err != nil {
+		return errors.New("无法写出文件")
+	}
+	if err := temporary.Sync(); err != nil {
+		return errors.New("无法写出文件")
+	}
+	if err := temporary.Close(); err != nil {
+		return errors.New("无法写出文件")
+	}
+	if err := replaceFile(temporaryPath, dest); err != nil {
+		return err
 	}
 	return nil
 }
 
-func copyOwnedResourceBody(file *os.File, body io.Reader) error {
-	if _, err := io.Copy(file, body); err != nil {
-		return fmt.Errorf("无法写出文件")
+func rejectSameFile(src *os.File, dest string) error {
+	if src == nil {
+		return nil
 	}
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("无法写出文件")
+	destInfo, err := os.Stat(dest)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return errors.New("无法写入所选位置")
 	}
+	srcInfo, err := src.Stat()
+	if err != nil {
+		return errors.New("没有可导出的本机文件")
+	}
+	if os.SameFile(srcInfo, destInfo) {
+		return errors.New("不能覆盖正在导出的原文件")
+	}
+	return nil
+}
+
+func replaceFile(tmpPath, dest string) error {
+	if err := os.Rename(tmpPath, dest); err == nil {
+		return nil
+	} else if runtime.GOOS != "windows" {
+		return errors.New("无法保存到所选位置")
+	}
+	if _, err := os.Stat(dest); err != nil {
+		return errors.New("无法保存到所选位置")
+	}
+	backup := dest + ".beeftv-old"
+	_ = os.Remove(backup)
+	if err := os.Rename(dest, backup); err != nil {
+		return errors.New("无法保存到所选位置")
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		_ = os.Rename(backup, dest)
+		return errors.New("无法保存到所选位置")
+	}
+	_ = os.Remove(backup)
 	return nil
 }
 
@@ -94,13 +182,41 @@ func sanitizeSaveFileName(name string) string {
 	if cleaned == "" || cleaned == "." || cleaned == ".." {
 		return "未命名媒体"
 	}
-	if len(cleaned) > 180 {
-		cleaned = strings.TrimRight(cleaned[:180], " .")
+	return limitSaveFileName(cleaned)
+}
+
+func limitSaveFileName(name string) string {
+	if len(name) <= maxSaveFileNameBytes {
+		return name
 	}
-	if cleaned == "" {
-		return "未命名媒体"
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	budget := maxSaveFileNameBytes - len(ext)
+	if budget < 1 {
+		trimmed := strings.TrimRight(truncateToUTF8Bytes(name, maxSaveFileNameBytes), " .")
+		if trimmed == "" {
+			return "未命名媒体"
+		}
+		return trimmed
 	}
-	return cleaned
+	truncated := strings.TrimRight(truncateToUTF8Bytes(base, budget), " .")
+	if truncated == "" {
+		return "未命名媒体" + ext
+	}
+	return truncated + ext
+}
+
+func truncateToUTF8Bytes(value string, maxBytes int) string {
+	if maxBytes <= 0 || value == "" {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+	for maxBytes > 0 && !utf8.RuneStart(value[maxBytes]) {
+		maxBytes--
+	}
+	return value[:maxBytes]
 }
 
 func sanitizeSaveDestination(destPath string) (string, error) {
@@ -108,9 +224,7 @@ func sanitizeSaveDestination(destPath string) (string, error) {
 	if dest == "" {
 		return "", errors.New("没有选择保存位置")
 	}
-	if dest != filepath.Clean(dest) {
-		dest = filepath.Clean(dest)
-	}
+	dest = filepath.Clean(dest)
 	info, err := os.Stat(dest)
 	if err == nil && info.IsDir() {
 		return "", errors.New("保存位置不能是文件夹")
