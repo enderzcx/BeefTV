@@ -38,4 +38,46 @@ describe("manual channel protocol defaults", () => {
             expect.objectContaining({ model: "gpt-4.1-mini", capability: "text", protocol: "chat-completion" }),
         ]);
     });
+
+    test("manual MiniMax speech and music names are audio, not video", () => {
+        expect(inferProtocolCapabilityFromModel("minimax-speech-2.8-hd")).toBe("audio");
+        expect(defaultProtocolForModel("minimax-speech-2.8-hd")).toBe("openai-audio");
+        expect(inferProtocolCapabilityFromModel("minimax-music-2.0")).toBe("audio");
+        expect(defaultProtocolForModel("minimax-music-2.0")).toBe("openai-audio");
+        expect(ensureModelProfilesWithUiDefaults(["minimax-speech-2.8-hd", "minimax-music-2.0"], undefined)).toEqual([
+            expect.objectContaining({ model: "minimax-speech-2.8-hd", capability: "audio", protocol: "openai-audio" }),
+            expect.objectContaining({ model: "minimax-music-2.0", capability: "audio", protocol: "openai-audio" }),
+        ]);
+    });
+
+    test("manual MiniMax text names stay text", () => {
+        expect(inferProtocolCapabilityFromModel("minimax-m2")).toBe("text");
+        expect(defaultProtocolForModel("minimax-m2")).toBe("chat-completion");
+        expect(ensureModelProfilesWithUiDefaults(["minimax-m2"], undefined)).toEqual([
+            expect.objectContaining({ model: "minimax-m2", capability: "text", protocol: "chat-completion" }),
+        ]);
+    });
+
+    test("explicit capability is kept when protocol is missing", () => {
+        const profiles = ensureModelProfilesWithUiDefaults(
+            ["custom-voice"],
+            [{ model: "custom-voice", capability: "audio" }],
+        );
+        expect(profiles).toEqual([
+            expect.objectContaining({ model: "custom-voice", capability: "audio", protocol: "openai-audio" }),
+        ]);
+        const channel = createModelChannel({
+            id: "manual",
+            name: "QA",
+            apiKey: "fakekey",
+            models: ["custom-voice"],
+            modelProfiles: [{ model: "custom-voice", capability: "audio" }],
+        });
+        expect(resolveModelRequestConfig({ ...defaultConfig, channels: [channel], model: "manual::custom-voice" }, "manual::custom-voice").interfaceType).toBe("openai-audio");
+    });
+
+    test("gpt-image names stay image", () => {
+        expect(inferProtocolCapabilityFromModel("gpt-image-1")).toBe("image");
+        expect(defaultProtocolForModel("gpt-image-1")).toBe("openai-image");
+    });
 });

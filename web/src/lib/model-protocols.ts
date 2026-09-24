@@ -40,7 +40,18 @@ const FALLBACK_PROTOCOLS: Record<ProtocolCapability, ModelProtocol> = {
 export function inferProtocolCapabilityFromModel(model: string): ProtocolCapability {
     const lower = model.toLowerCase();
     if (
+        lower.includes("audio") ||
+        lower.includes("tts") ||
+        lower.includes("voice") ||
+        lower.includes("speech") ||
+        lower.includes("sound") ||
+        lower.includes("music")
+    ) {
+        return "audio";
+    }
+    if (
         lower.includes("seedream") ||
+        lower.includes("gpt-image") ||
         lower.includes("image") ||
         lower.includes("dall-e") ||
         lower.includes("dalle") ||
@@ -59,7 +70,7 @@ export function inferProtocolCapabilityFromModel(model: string): ProtocolCapabil
         lower.includes("veo") ||
         lower.includes("kling") ||
         lower.includes("seedance") ||
-        lower.includes("minimax") ||
+        lower.includes("minimax-video") ||
         lower.includes("hailuo") ||
         lower.includes("pika") ||
         lower.includes("runway") ||
@@ -68,16 +79,6 @@ export function inferProtocolCapabilityFromModel(model: string): ProtocolCapabil
         lower.includes("wan")
     ) {
         return "video";
-    }
-    if (
-        lower.includes("audio") ||
-        lower.includes("tts") ||
-        lower.includes("voice") ||
-        lower.includes("speech") ||
-        lower.includes("sound") ||
-        lower.includes("music")
-    ) {
-        return "audio";
     }
     return "text";
 }
@@ -103,8 +104,8 @@ export function ensureModelProfilesWithUiDefaults<T extends { model: string; cap
     return models.map((model) => {
         const current = byModel.get(model);
         if (current?.protocol && current.capability) return { ...current, capability: current.capability, protocol: current.protocol };
-        const protocol = current?.protocol || defaultProtocolForModel(model, availableProtocols);
-        const capability = current?.capability || modelProtocolCapability(protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
+        const capability = current?.capability || modelProtocolCapability(current?.protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
+        const protocol = current?.protocol || defaultProtocolForCapability(capability, availableProtocols);
         return { ...(current as T | undefined), model, capability, protocol };
     });
 }
