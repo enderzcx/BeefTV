@@ -56,7 +56,7 @@ export function CanvasGenerationHistoryPicker({ open, projectId, onClose, onSele
 
 function HistoryTaskCard({ task, onSelect }: { task: GenerationTask; onSelect: () => void }) {
     const mode = generationTaskMode(task);
-    const preview = task.previewPosterUrl || task.previewUrl || previewFromResult(task);
+    const preview = generationHistoryPreviewImageSrc(task);
     const Icon = mode === "video" ? FileVideo : mode === "audio" ? FileAudio : ImageIcon;
     return (
         <button type="button" className="group overflow-hidden rounded-lg border border-border/70 bg-surface text-left transition hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onSelect} aria-label={`插入${modeLabel(mode)}：${task.prompt.slice(0, 40)}`}>
@@ -73,14 +73,44 @@ function modeLabel(mode: string) {
     return mode === "video" ? "视频" : mode === "audio" ? "音频" : "图片";
 }
 
+export function generationHistoryPreviewImageSrc(task: GenerationTask) {
+    const mode = generationTaskMode(task);
+    if (mode === "audio") return "";
+    if (mode === "video") {
+        const poster = task.previewPosterUrl || previewPosterFromResult(task);
+        return isImagePreviewSrc(poster) ? poster : "";
+    }
+    const preview = task.previewPosterUrl || task.previewUrl || previewFromResult(task);
+    return isImagePreviewSrc(preview) ? preview : "";
+}
+
+function isImagePreviewSrc(value: string) {
+    if (!value) return false;
+    const lower = value.toLowerCase();
+    if (lower.startsWith("data:image/")) return true;
+    if (lower.startsWith("data:")) return false;
+    if (/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|mkv)(?:\?|$)/i.test(lower)) return false;
+    return true;
+}
+
+function previewPosterFromResult(task: GenerationTask) {
+    if (!task.resultJson) return "";
+    try {
+        const result = JSON.parse(task.resultJson) as { video?: { previewUrl?: string; posterUrl?: string } };
+        return result.video?.previewUrl || result.video?.posterUrl || "";
+    } catch {
+        return "";
+    }
+}
+
 function previewFromResult(task: GenerationTask) {
     if (!task.resultJson) return "";
     try {
         const result = JSON.parse(task.resultJson) as { images?: Array<{ dataUrl?: string; url?: string }>; video?: { previewUrl?: string; dataUrl?: string; url?: string }; audio?: { dataUrl?: string; url?: string } };
         const mode = generationTaskMode(task);
         if (mode === "image") return result.images?.[0]?.dataUrl || result.images?.[0]?.url || "";
-        if (mode === "video") return result.video?.previewUrl || result.video?.dataUrl || result.video?.url || "";
-        return result.audio?.dataUrl || result.audio?.url || "";
+        if (mode === "video") return result.video?.previewUrl || "";
+        return "";
     } catch {
         return "";
     }
