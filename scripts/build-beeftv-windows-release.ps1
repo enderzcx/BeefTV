@@ -28,6 +28,10 @@
 param()
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 turns native stderr into ErrorRecords. PowerShell 7.4+
+# can also honor ErrorActionPreference for native commands. Download progress
+# such as "go: downloading ..." must not become a terminating error.
+$PSNativeCommandUseErrorActionPreference = $false
 
 if ($env:OS -ne "Windows_NT") {
     throw "scripts/build-beeftv-windows-release.ps1 is the native Windows entrypoint. On macOS/Linux use scripts/build-beeftv-release.sh. Cross-compiling from another OS is not native acceptance."
@@ -52,6 +56,57 @@ function Get-CommandPath([string]$Name) {
         return $command.Source
     }
     return $null
+}
+
+# Run a native executable without treating stderr progress as failure.
+# Redirected logs + ErrorActionPreference=Stop otherwise throw NativeCommandError
+# before LASTEXITCODE can be inspected. True nonzero exits still fail.
+function Invoke-NativeExecutable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [object[]]$ArgumentList = @(),
+        [string]$FailureMessage,
+        [switch]$AllowFailure,
+        [switch]$CaptureOutput
+    )
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = $null
+    $code = 0
+    try {
+        if ($CaptureOutput) {
+            if ($ArgumentList.Count -gt 0) {
+                $output = & $FilePath @ArgumentList
+            }
+            else {
+                $output = & $FilePath
+            }
+        }
+        else {
+            if ($ArgumentList.Count -gt 0) {
+                & $FilePath @ArgumentList
+            }
+            else {
+                & $FilePath
+            }
+            $output = $null
+        }
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
+    if ($null -eq $code) {
+        $code = 0
+    }
+    if ($code -ne 0 -and -not $AllowFailure) {
+        if ([string]::IsNullOrWhiteSpace($FailureMessage)) {
+            throw ("{0} failed with exit code {1}" -f $FilePath, $code)
+        }
+        throw ("{0} (exit code {1})" -f $FailureMessage, $code)
+    }
+    return @{ ExitCode = $code; Output = $output }
 }
 
 function Get-PluginSourceDirectories {
@@ -195,18 +250,12 @@ function Invoke-PluginPackageBuild {
     $posixScript = Join-Path $pluginSourceDir "build-packages.sh"
     if ($bash -and $zip -and $node) {
         Write-Step "Building official plugin packages with plugin-packages/build-packages.sh"
-        & $bash $posixScript
-        if ($LASTEXITCODE -ne 0) {
-            throw "plugin-packages/build-packages.sh failed with exit code $LASTEXITCODE"
-        }
+        [void](Invoke-NativeExecutable -FilePath $bash -ArgumentList @($posixScript) -FailureMessage "plugin-packages/build-packages.sh failed")
         return
     }
 
     Write-Step "Embedding plugin documentation with $jsRuntime"
-    & $jsRuntime $embedScript
-    if ($LASTEXITCODE -ne 0) {
-        throw "plugin-packages/embed-documentation.mjs failed with exit code $LASTEXITCODE"
-    }
+    [void](Invoke-NativeExecutable -FilePath $jsRuntime -ArgumentList @($embedScript) -FailureMessage "plugin-packages/embed-documentation.mjs failed")
 
     Write-Step "zip/bash/node not all available; packaging official plugins with PowerShell ZipArchive (forward-slash entries)"
     foreach ($packageDir in Get-PluginSourceDirectories) {
@@ -270,7 +319,8 @@ if ([string]::IsNullOrWhiteSpace($env:GOTOOLCHAIN)) {
     $env:GOTOOLCHAIN = "local"
 }
 
-$goVersion = (& go env GOVERSION).Trim()
+$goVersionResult = Invoke-NativeExecutable -FilePath "go" -ArgumentList @("env", "GOVERSION") -CaptureOutput -FailureMessage "go env GOVERSION failed"
+$goVersion = ([string]$goVersionResult.Output).Trim()
 if ($goVersion -match '^go1\.(\d+)') {
     $minor = [int]$Matches[1]
     if ($minor -lt 25) {
@@ -303,12 +353,13 @@ if ($existingPackages.Count -ne $sourceDirs.Count) {
 $commitValue = "unknown"
 $git = Get-CommandPath "git"
 if ($git) {
-    $commitValue = (& git -C $repoRoot rev-parse --short HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commitValue)) {
+    $gitResult = Invoke-NativeExecutable -FilePath $git -ArgumentList @("-C", $repoRoot, "rev-parse", "--short", "HEAD") -CaptureOutput -AllowFailure
+    $commitText = ([string]$gitResult.Output).Trim()
+    if ($gitResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($commitText)) {
         $commitValue = "unknown"
     }
     else {
-        $commitValue = $commitValue.Trim()
+        $commitValue = $commitText
     }
 }
 if ([string]::IsNullOrWhiteSpace($env:CANVAS_BUILD_TIME)) {
@@ -332,10 +383,7 @@ try {
         "-m",
         "-ldflags", $ldflags
     )
-    & go @wailsArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "wails build failed with exit code $LASTEXITCODE"
-    }
+    [void](Invoke-NativeExecutable -FilePath "go" -ArgumentList $wailsArgs -FailureMessage "wails build failed")
 }
 finally {
     Pop-Location
