@@ -52,6 +52,16 @@ type CanvasTimelineDialogProps = {
     onCreateAssembledNode: (blob: Blob, title: string) => Promise<CanvasNodeData | null>;
 };
 
+export async function runTimelineDialogSaveAttempt(save: () => Promise<void>, close: () => void) {
+    try {
+        await save();
+        close();
+        return undefined;
+    } catch (error) {
+        return error;
+    }
+}
+
 type ClipDragMode = "move" | "trim-start" | "trim-end";
 
 type DragState =
@@ -85,6 +95,7 @@ export function CanvasTimelineDialog({
     const [snapEnabled, setSnapEnabled] = useState(true);
     const [previewPlaying, setPreviewPlaying] = useState(false);
     const [exporting, setExporting] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [exportPercent, setExportPercent] = useState(0);
     const [exportDetail, setExportDetail] = useState("");
     const dragRef = useRef<DragState>(null);
@@ -456,6 +467,7 @@ export function CanvasTimelineDialog({
     };
 
     const handleSave = async () => {
+        if (saving) return;
         // 互通修复：时间线草稿只在打开时初始化，期间节点字幕可能在字幕弹窗中被清空（或节点数据被外部更新）。
         // 保存前以节点当前字幕为准做定向校准：节点字幕已为空时，剔除草稿残留的旧字幕片段并回写空数组，
         // 避免「清空后重开视频节点旧字幕复活」；节点仍有字幕时保留草稿内用户的时间线编辑（拖动/删减/文本）。
@@ -463,25 +475,24 @@ export function CanvasTimelineDialog({
         const base = normalizeTimelineProject({ ...draft, updatedAt: new Date().toISOString() });
         const reconciledClips = clearedSubtitleNodeIds.size ? base.clips.filter((clip) => !(clip.kind === "subtitle" && clearedSubtitleNodeIds.has(clip.nodeId))) : base.clips;
         const normalized = normalizeTimelineProject({ ...base, clips: reconciledClips });
-        try {
+        setSaving(true);
+        const error = await runTimelineDialogSaveAttempt(async () => {
             await onSave(normalized);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "时间线保存失败，请重试");
-            return;
-        }
-        // 整合方向：时间线字幕片段与节点字幕互通。保存时按视频节点回写 subtitleEntries（含空数组）。
-        // 回写集合 = 项目时间线原有字幕节点 ∪ 校准后仍有字幕片段的节点 ∪ 节点当前仍有字幕数据的节点：
-        // 覆盖“首次打开时间线（项目尚无 timeline）时删除字幕片段”这类 timeline 为空导致的漏回写，
-        // 保证删除全部字幕片段后节点字幕被同步清空，重开视频节点不再显示旧字幕。
-        const previousSubtitleNodeIds = new Set((timeline?.clips || []).filter((clip) => clip.kind === "subtitle").map((clip) => clip.nodeId));
-        const nextSubtitleNodeIds = new Set(normalized.clips.filter((clip) => clip.kind === "subtitle").map((clip) => clip.nodeId));
-        const nodeSubtitleNodeIds = new Set(nodes.filter((item) => (item.metadata?.subtitleEntries?.length ?? 0) > 0).map((item) => item.id));
-        const subtitleNodeIds = new Set([...previousSubtitleNodeIds, ...nextSubtitleNodeIds, ...nodeSubtitleNodeIds]);
-        subtitleNodeIds.forEach((subNodeId) => {
-            onSaveSubtitles(subNodeId, buildSubtitleEntriesForNode(subNodeId, normalized));
-        });
-        message.success("时间线已保存");
-        onClose();
+            // 整合方向：时间线字幕片段与节点字幕互通。保存时按视频节点回写 subtitleEntries（含空数组）。
+            // 回写集合 = 项目时间线原有字幕节点 ∪ 校准后仍有字幕片段的节点 ∪ 节点当前仍有字幕数据的节点：
+            // 覆盖“首次打开时间线（项目尚无 timeline）时删除字幕片段”这类 timeline 为空导致的漏回写，
+            // 保证删除全部字幕片段后节点字幕被同步清空，重开视频节点不再显示旧字幕。
+            const previousSubtitleNodeIds = new Set((timeline?.clips || []).filter((clip) => clip.kind === "subtitle").map((clip) => clip.nodeId));
+            const nextSubtitleNodeIds = new Set(normalized.clips.filter((clip) => clip.kind === "subtitle").map((clip) => clip.nodeId));
+            const nodeSubtitleNodeIds = new Set(nodes.filter((item) => (item.metadata?.subtitleEntries?.length ?? 0) > 0).map((item) => item.id));
+            const subtitleNodeIds = new Set([...previousSubtitleNodeIds, ...nextSubtitleNodeIds, ...nodeSubtitleNodeIds]);
+            subtitleNodeIds.forEach((subNodeId) => {
+                onSaveSubtitles(subNodeId, buildSubtitleEntriesForNode(subNodeId, normalized));
+            });
+            message.success("时间线已保存");
+        }, onClose);
+        if (error) message.error(error instanceof Error ? error.message : "时间线保存失败，请重试");
+        setSaving(false);
     };
 
     // 组装导出：把当前草稿按片段顺序合成一个 MP4 Blob（导出下载与生成新片段共用）。
@@ -646,7 +657,9 @@ export function CanvasTimelineDialog({
             // fixed-width modal.
             width="min(1160px, calc(100vw - 24px))"
             destroyOnHidden
-            onCancel={onClose}
+            onCancel={() => {
+                if (!saving) onClose();
+            }}
             afterOpenChange={(visible) => {
                 if (visible) ensureToolbarObserved();
             }}
@@ -778,10 +791,10 @@ export function CanvasTimelineDialog({
                         <Button size="small" danger icon={<Trash2 className="size-3.5" />} disabled={!selectedClipId} onClick={deleteSelectedClip}>
                             删除片段
                         </Button>
-                        <Button size="small" disabled={!draft.clips.length} onClick={onClose}>
+                        <Button size="small" disabled={saving || !draft.clips.length} onClick={onClose}>
                             取消
                         </Button>
-                        <Button size="small" type="primary" disabled={!draft.clips.length} onClick={handleSave}>
+                        <Button size="small" type="primary" loading={saving} disabled={saving || !draft.clips.length} onClick={() => void handleSave()}>
                             保存
                         </Button>
                     </div>

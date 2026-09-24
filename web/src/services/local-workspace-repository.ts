@@ -3,6 +3,7 @@ import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store"
 import { http } from "@/services/api/request";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 type LocalCanvasContent = Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId">>;
 type CanvasSaveSummary = Pick<CanvasProject, "id" | "title" | "createdAt" | "updatedAt" | "revision">;
@@ -128,18 +129,18 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
         if (backendSaveTails.get(id) === tail) backendSaveTails.delete(id);
     });
     backendSaveTails.set(id, tail);
-    return next;
+    return tail;
 }
 
 export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id, false);
 }
 
-/** Timeline edits live on the canvas document. Desktop restarts hydrate from SQLite, so save must reach the Go repository, not only IndexedDB. */
+/** Timeline edits live on the canvas document. Local desktop restarts hydrate from SQLite, so that profile must PUT the Go repository. Hosted keeps the existing store/flush path. */
 export async function persistCanvasTimeline(id: string, timeline: NonNullable<CanvasProject["timeline"]>) {
     useCanvasStore.getState().updateProject(id, { timeline });
     await flushCanvasStorePersistence();
-    await syncLocalCanvasProjectToBackend(id);
+    if (isLocalWorkspaceMode()) await syncLocalCanvasProjectToBackend(id);
 }
 
 export function syncLocalCanvasGenerationProjectToBackend(id: string): Promise<void> {

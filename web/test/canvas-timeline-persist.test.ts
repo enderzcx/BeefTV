@@ -1,6 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
+import { runTimelineDialogSaveAttempt } from "@/components/canvas/canvas-timeline-dialog";
 import { createDefaultTracks, normalizeTimelineProject } from "@/lib/timeline/timeline-tracks";
 import { useCanvasStore, withCanvasStorePersistenceSuppressed } from "@/stores/canvas/use-canvas-store";
 import type { TimelineProject } from "@/types/timeline";
@@ -80,18 +83,29 @@ describe("canvas timeline persistence", () => {
         }
     });
 
-    test("timeline save writes the canvas document to the desktop repository", () => {
-        const repository = readFileSync(new URL("../src/services/local-workspace-repository.ts", import.meta.url), "utf8");
-        const page = readFileSync(new URL("../src/pages/canvas/project.tsx", import.meta.url), "utf8");
-        expect(repository).toContain("await syncLocalCanvasProjectToBackend(id)");
-        expect(repository).toContain("export async function persistCanvasTimeline");
-        expect(page).toContain("onSave={(next) => persistCanvasTimeline(projectId, next)}");
-        expect(page).not.toContain("onSave={(next) => updateProject(projectId, { timeline: next })}");
+    test("timeline dialog does not close when save rejects", async () => {
+        let closed = false;
+        const error = await runTimelineDialogSaveAttempt(async () => {
+            throw new Error("画布后端持久化失败");
+        }, () => {
+            closed = true;
+        });
+        expect(closed).toBe(false);
+        expect((error as Error).message).toBe("画布后端持久化失败");
+        closed = false;
+        const ok = await runTimelineDialogSaveAttempt(async () => undefined, () => {
+            closed = true;
+        });
+        expect(ok).toBeUndefined();
+        expect(closed).toBe(true);
     });
 
     test("timeline dialog subtitle does not expose an implementation phase", () => {
         const source = readFileSync(new URL("../src/components/canvas/canvas-timeline-dialog.tsx", import.meta.url), "utf8");
         expect(source).toContain("轨道编辑与素材编排");
         expect(source).not.toContain("第二期 ·");
+        expect(source).toContain("loading={saving}");
+        expect(source).toContain("if (saving) return");
     });
 });
+

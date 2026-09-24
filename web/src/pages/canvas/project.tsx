@@ -3522,7 +3522,7 @@ function InfiniteCanvasPage() {
                                     const currentTimeline = currentProject?.timeline;
                                     if (currentTimeline) {
                                         const next = syncNodeSubtitlesToTimeline(currentTimeline, nodeId, patch.subtitleEntries || []);
-                                        if (next !== currentTimeline) void persistCanvasTimeline(projectId, next);
+                                        if (next !== currentTimeline) updateProject(projectId, { timeline: next });
                                     }
                                 }}
                             />
