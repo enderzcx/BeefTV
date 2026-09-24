@@ -8,7 +8,7 @@ import { testChannelModelConnection } from "@/lib/model-connection-test";
 import { ModelCapabilityEditor } from "@/components/model-capability-editor";
 import { type ModelCapabilityChoice } from "@/components/model-protocol-picker";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
-import { modelProtocolCapability, modelProtocolDefinition, type ModelProtocol, type ModelProtocolDefinition } from "@/lib/model-protocols";
+import { defaultProtocolForCapability, defaultProtocolForModel, inferProtocolCapabilityFromModel, modelProtocolCapability, modelProtocolDefinition, type ModelProtocol, type ModelProtocolDefinition } from "@/lib/model-protocols";
 import { fetchPluginProviderCatalog } from "@/services/api/plugin-catalog";
 import { modelOptionName, type ModelChannel } from "@/stores/use-config-store";
 
@@ -35,7 +35,7 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
 
     const updateProfile = (model: string, patch: Partial<ModelProfile>) => {
         const defaultProtocol = defaultProtocolForModel(model, availableProtocols);
-        const defaultCap = modelProtocolCapability(defaultProtocol, availableProtocols) || inferCapabilityFromModel(model);
+        const defaultCap = modelProtocolCapability(defaultProtocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
         const current = channel.modelProfiles?.find((item) => item.model === model) || {
             model,
             capability: defaultCap,
@@ -61,7 +61,7 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
     const activeModelProfile = activeModel ? channel.modelProfiles?.find((item) => item.model === activeModel) : undefined;
     const inferredProtocol = activeModel ? defaultProtocolForModel(activeModel, availableProtocols) : "";
     const activeProtocol = activeModelProfile?.protocol || inferredProtocol;
-    const activeCapability = activeModelProfile?.capability || modelProtocolCapability(activeProtocol, availableProtocols) || (activeModel ? inferCapabilityFromModel(activeModel) : "text");
+    const activeCapability = activeModelProfile?.capability || modelProtocolCapability(activeProtocol, availableProtocols) || (activeModel ? inferProtocolCapabilityFromModel(activeModel) : "text");
 
     return (
         <div className="mt-4">
@@ -77,7 +77,7 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
                     const model = modelOptionName(rawModel);
                     const profile = channel.modelProfiles?.find((item) => item.model === model);
                     const protocol = profile?.protocol || defaultProtocolForModel(model, availableProtocols);
-                    const capability = profile?.capability || modelProtocolCapability(protocol, availableProtocols) || inferCapabilityFromModel(model);
+                    const capability = profile?.capability || modelProtocolCapability(protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
                     const displayName = profile?.displayName?.trim() || model;
                     return (
                         <div key={model} className="flex min-w-0 items-center gap-3 rounded-md bg-surface-active px-3 py-2.5 transition-colors hover:bg-surface-hover">
@@ -184,80 +184,6 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
             />
         </div>
     );
-}
-
-function inferCapabilityFromModel(model: string): ModelCapabilityChoice {
-    const lower = model.toLowerCase();
-    if (
-        lower.includes("audio") ||
-        lower.includes("tts") ||
-        lower.includes("voice") ||
-        lower.includes("speech") ||
-        lower.includes("sound") ||
-        lower.includes("music")
-    ) {
-        return "audio";
-    }
-    if (
-        lower.includes("seedream") ||
-        lower.includes("image") ||
-        lower.includes("dall-e") ||
-        lower.includes("dalle") ||
-        lower.includes("flux") ||
-        lower.includes("imagen") ||
-        lower.includes("banana") ||
-        lower.includes("midjourney") ||
-        lower.includes("sdxl") ||
-        lower.includes("stable-diffusion")
-    ) {
-        return "image";
-    }
-    if (
-        lower.includes("video") ||
-        lower.includes("sora") ||
-        lower.includes("veo") ||
-        lower.includes("kling") ||
-        lower.includes("seedance") ||
-        lower.includes("minimax") ||
-        lower.includes("hailuo") ||
-        lower.includes("pika") ||
-        lower.includes("runway") ||
-        lower.includes("omni") ||
-        lower.includes("cogvideo") ||
-        lower.includes("wan")
-    ) {
-        return "video";
-    }
-    return "text";
-}
-
-function defaultProtocolForCapability(capability: ModelCapabilityChoice, availableProtocols: ModelProtocolDefinition[]): ModelProtocol {
-    const standardProtocols: Record<string, string[]> = {
-        text: ["chat-completion", "openai-response"],
-        image: ["openai-image"],
-        video: ["newapi-channel-2", "newapi"],
-        audio: ["openai-audio"],
-    };
-    const preferred = standardProtocols[capability] || [];
-    for (const id of preferred) {
-        if (availableProtocols.some((p) => p.value === id && p.enabled !== false)) {
-            return id;
-        }
-    }
-    const matched = availableProtocols.find((p) => p.capability === capability && p.enabled !== false);
-    if (matched) return matched.value;
-    const fallbackMap: Record<string, string> = {
-        text: "chat-completion",
-        image: "openai-image",
-        video: "newapi-channel-2",
-        audio: "openai-audio",
-    };
-    return fallbackMap[capability] || "chat-completion";
-}
-
-function defaultProtocolForModel(model: string, availableProtocols: ModelProtocolDefinition[] = []): ModelProtocol {
-    const capability = inferCapabilityFromModel(model);
-    return defaultProtocolForCapability(capability, availableProtocols);
 }
 
 function capabilityLabel(value: ModelProfile["capability"]) {

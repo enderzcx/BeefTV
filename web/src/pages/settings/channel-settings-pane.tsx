@@ -6,6 +6,7 @@ import { ModelEditorModal } from "@/components/model-editor-modal";
 import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/channel-headers-editor";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { mergeFetchedChannelModelProfiles } from "@/lib/channel-model-catalog";
+import { ensureModelProfilesWithUiDefaults } from "@/lib/model-protocols";
 import { fetchChannelModels, type ChannelModelFetchResult } from "@/services/api/image";
 import { channelHasGenerationCredential, channelHasManagedBeefAPICredential, createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, isBuiltinBeefAPIChannel, modelOptionsFromChannels, normalizeConfigSnapshot, useConfigStore, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { ChannelModelSettings } from "./channel-model-settings";
@@ -100,11 +101,18 @@ export function ChannelSettingsPane({ onOpenModels, onOpenRunningHub }: ChannelS
             config.channels.map((channel) => {
                 if (channel.id !== id) return channel;
                 const models = patch.models ? uniqueModels(patch.models) : channel.models;
+                const modelProfiles = patch.modelProfiles !== undefined
+                    ? patch.modelProfiles
+                    : patch.models && channel.scope !== "system"
+                        ? ensureModelProfilesWithUiDefaults(models, channel.modelProfiles)
+                        : patch.models
+                            ? channel.modelProfiles?.filter((item) => models.includes(item.model))
+                            : channel.modelProfiles;
                 return {
                     ...channel,
                     ...patch,
                     models,
-                    modelProfiles: patch.modelProfiles !== undefined ? patch.modelProfiles : patch.models ? channel.modelProfiles?.filter((item) => models.includes(item.model)) : channel.modelProfiles,
+                    modelProfiles,
                 };
             }),
         );
