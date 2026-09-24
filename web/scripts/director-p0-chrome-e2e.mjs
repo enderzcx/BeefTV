@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 
 const CHROME_CANDIDATES = [
     process.env.CHROME_BIN,
@@ -73,9 +74,10 @@ function freePort() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 启动 Vite DEV，等待 ready 行或 TCP 可连接；超时即抛。 */
-async function launchVite(port) {
+async function launchVite(port, apiTarget) {
     const child = spawn("bunx", ["vite", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
         cwd: process.cwd(),
+        env: { ...process.env, VITE_API_PROXY_TARGET: apiTarget },
         stdio: ["ignore", "pipe", "pipe"],
     });
     let log = "";
@@ -98,6 +100,34 @@ async function launchVite(port) {
         await sleep(500);
     }
     throw new Error(`Vite did not become ready within 120s:\n${log}`);
+}
+
+async function launchApiFixture() {
+    const server = createHttpServer((request, response) => {
+        const url = new URL(request.url || "/", "http://127.0.0.1");
+        if (request.method === "GET" && url.pathname === "/api/canvas-projects") {
+            response.writeHead(200, { "Content-Type": "application/json" });
+            response.end(JSON.stringify({ code: 0, data: { items: [], total: 0 } }));
+            return;
+        }
+        response.writeHead(404, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ code: 404, message: "fixture route not found" }));
+    });
+    await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("API fixture did not expose a TCP port");
+    return { server, target: `http://127.0.0.1:${address.port}` };
+}
+
+async function stopApiFixture(server) {
+    if (!server) return;
+    await new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections?.();
+    });
 }
 
 /** 启动 headless Chrome 并等待 CDP /json/version；超时即抛。 */
@@ -702,10 +732,13 @@ async function main() {
     let vite = null;
     let chrome = null;
     let cdp = null;
+    let apiFixture = null;
 
     try {
+        apiFixture = await launchApiFixture();
+        console.log(`API fixture listening on ${apiFixture.target}`);
         console.log(`Starting Vite on ${baseUrl} ...`);
-        vite = await launchVite(vitePort);
+        vite = await launchVite(vitePort, apiFixture.target);
         console.log(`      vite pid=${vite.pid}`);
 
         console.log(`Starting Chrome with CDP on 127.0.0.1:${cdpPort} ...`);
@@ -738,6 +771,11 @@ async function main() {
             await stopExact(vite, "vite");
         } catch (error) {
             fail("cleanup: stop vite", String(error?.message || error));
+        }
+        try {
+            await stopApiFixture(apiFixture?.server);
+        } catch (error) {
+            fail("cleanup: stop API fixture", String(error?.message || error));
         }
         try {
             rmSync(profileDir, { recursive: true, force: true });
