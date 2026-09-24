@@ -264,6 +264,7 @@ if ($failures.Count -gt 0) {
     throw ($failures -join [Environment]::NewLine)
 }
 
+$env:CC = $cgoCompiler
 $env:CGO_ENABLED = "1"
 if ([string]::IsNullOrWhiteSpace($env:GOTOOLCHAIN)) {
     $env:GOTOOLCHAIN = "local"
@@ -296,7 +297,7 @@ foreach ($package in $existingPackages) {
     Test-PluginZipEntries -ZipPath $package.FullName
 }
 if ($existingPackages.Count -ne $sourceDirs.Count) {
-    Write-Warning "Packaged $($existingPackages.Count) *.beeftv-plugin files, but $($sourceDirs.Count) plugin source directories have manifest.json. Continuing with the packaged files."
+    throw "Official plugin package count does not match sources; rebuild all plugin packages before releasing."
 }
 
 $commitValue = "unknown"
