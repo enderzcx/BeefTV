@@ -31,6 +31,7 @@ type Options struct {
 	ClientVersion string
 	Hostname      string
 	FetchCatalog  func(apiKey, baseURL string) ([]CatalogModel, error)
+	Persist       func(persistedState) error
 }
 
 type Service struct {
@@ -44,6 +45,7 @@ type Service struct {
 	clientVersion string
 	hostname      string
 	fetchCatalog  func(apiKey, baseURL string) ([]CatalogModel, error)
+	persistFn     func(persistedState) error
 
 	mu         sync.Mutex
 	state      persistedState
@@ -94,8 +96,15 @@ func New(opts Options) (*Service, error) {
 	return &Service{
 		dataDir: dataDir, origin: origin, httpClient: httpClient, openURL: openURL,
 		now: now, sleep: sleep, provider: opts.Provider, clientVersion: clientVersion,
-		hostname: hostname, fetchCatalog: opts.FetchCatalog, state: state,
+		hostname: hostname, fetchCatalog: opts.FetchCatalog, persistFn: opts.Persist, state: state,
 	}, nil
+}
+
+func (s *Service) persistState(state persistedState) error {
+	if s.persistFn != nil {
+		return s.persistFn(state)
+	}
+	return saveState(s.dataDir, state)
 }
 
 func (s *Service) Close() {
@@ -141,7 +150,7 @@ func (s *Service) Resolve() (Credential, error) {
 	}
 	accountID := ""
 	if state.Account != nil {
-		accountID = state.Account.ID
+		accountID = state.Account.ID.String()
 	}
 	baseURL := state.ProviderBaseURL
 	if baseURL == "" {
@@ -158,14 +167,24 @@ func (s *Service) MarkRevoked() {
 	}
 	s.state.Status = StateRevoked
 	s.state.LastError = "连接已失效，请重新连接"
-	_ = saveState(s.dataDir, s.state)
+	_ = s.persistState(s.state)
 }
 
 func (s *Service) MarkZeroBalance() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Balance = BalanceZero
-	_ = saveState(s.dataDir, s.state)
+	_ = s.persistState(s.state)
+}
+
+func (s *Service) needsFinalizeLocked() bool {
+	if !s.state.hasCredential() {
+		return false
+	}
+	if s.state.Status == StateExpired || s.state.Status == StateRejected || s.state.Status == StateRevoked {
+		return false
+	}
+	return !s.state.Acked || !s.state.CatalogOK || s.state.Status == StateCatalogFailed || s.state.Status == StateStoreError
 }
 
 func (s *Service) Start(ctx context.Context) (Summary, error) {
@@ -174,29 +193,24 @@ func (s *Service) Start(ctx context.Context) (Summary, error) {
 		s.mu.Unlock()
 		return Summary{}, errors.New("企业连接服务已关闭")
 	}
-	status := s.state.Status
-	if status == StatePending && s.state.Device != nil && s.now().Before(parseTime(s.state.Device.ExpiresAt)) {
-		summary := s.summaryLocked()
-		s.mu.Unlock()
-		return summary, nil
-	}
-	if status == StateConnected && s.state.hasCredential() && s.state.CatalogOK {
-		summary := s.summaryLocked()
-		s.mu.Unlock()
-		return summary, nil
-	}
-	if s.state.hasCredential() && (status == StateCatalogFailed || (status == StateConnected && !s.state.CatalogOK) || (s.state.hasCredential() && !s.state.Acked)) {
+	if s.needsFinalizeLocked() {
 		s.mu.Unlock()
 		if err := s.finalizeSavedCredential(ctx); err == nil {
 			return s.Status(), nil
 		}
-		s.mu.Lock()
-		status = s.state.Status
-		if status == StateConnected && s.state.CatalogOK {
-			summary := s.summaryLocked()
-			s.mu.Unlock()
+		summary := s.Status()
+		if summary.HasCredential && summary.State != StateExpired && summary.State != StateRejected && summary.State != StateRevoked {
 			return summary, nil
 		}
+		s.mu.Lock()
+	} else if s.state.Status == StateConnected && s.state.hasCredential() && s.state.Acked && s.state.CatalogOK {
+		summary := s.summaryLocked()
+		s.mu.Unlock()
+		return summary, nil
+	} else if s.state.Status == StatePending && s.state.Device != nil && s.now().Before(parseTime(s.state.Device.ExpiresAt)) {
+		summary := s.summaryLocked()
+		s.mu.Unlock()
+		return summary, nil
 	}
 	if s.pollCancel != nil {
 		s.pollCancel()
@@ -218,7 +232,7 @@ func (s *Service) Start(ctx context.Context) (Summary, error) {
 		VerificationURI: device.VerificationURI, VerificationURIComplete: device.VerificationURIComplete,
 		IntervalSeconds: device.Interval, ExpiresAt: expiresAt,
 	}
-	if err := saveState(s.dataDir, s.state); err != nil {
+	if err := s.persistState(s.state); err != nil {
 		s.state.Status = StateStoreError
 		s.state.LastError = "保存连接失败，请重试"
 		s.mu.Unlock()
@@ -264,7 +278,7 @@ func (s *Service) Cancel(ctx context.Context) (Summary, error) {
 		s.state.EncryptedAPIKey = ""
 		s.state.CatalogOK = false
 	}
-	if err := saveState(s.dataDir, s.state); err != nil {
+	if err := s.persistState(s.state); err != nil {
 		s.state.Status = StateStoreError
 		s.state.LastError = "保存连接失败，请重试"
 		return s.summaryLocked(), errStore
@@ -292,7 +306,7 @@ func (s *Service) Disconnect(ctx context.Context) (Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = persistedState{SchemaVersion: connectionSchema, Status: StateDisconnected, Balance: BalanceUnknown}
-	if err := saveState(s.dataDir, s.state); err != nil {
+	if err := s.persistState(s.state); err != nil {
 		s.state.Status = StateStoreError
 		s.state.LastError = "保存连接失败，请重试"
 		return s.summaryLocked(), errStore
@@ -306,9 +320,10 @@ func (s *Service) OpenWallet() error {
 
 func (s *Service) Recover(ctx context.Context) error {
 	s.mu.Lock()
+	needsFinalize := s.needsFinalizeLocked()
 	state := s.state
 	s.mu.Unlock()
-	if state.hasCredential() && (!state.Acked || !state.CatalogOK || state.Status == StateCatalogFailed) {
+	if needsFinalize {
 		return s.finalizeSavedCredential(ctx)
 	}
 	if state.Status == StatePending && state.Device != nil {
@@ -389,22 +404,13 @@ func (s *Service) pollLoop(ctx context.Context, deviceCode string, interval time
 	}
 }
 
+const ackRetryLimit = 5
+
 func (s *Service) acceptToken(ctx context.Context, deviceCode string, token tokenSuccess) error {
-	if err := ValidateReturnedBaseURL(s.origin, token.BaseURL); err != nil {
+	accountID, tokenID, err := validateTokenSuccess(s.origin, token)
+	if err != nil {
 		s.setError(StateRejected, err.Error())
 		return err
-	}
-	if strings.TrimSpace(token.Market) != "" && token.Market != "enterprise" {
-		s.setError(StateRejected, "企业授权市场无效")
-		return errors.New("企业授权市场无效")
-	}
-	if strings.TrimSpace(token.Group) != "" && token.Group != "enterprise" {
-		s.setError(StateRejected, "企业授权分组无效")
-		return errors.New("企业授权分组无效")
-	}
-	if strings.TrimSpace(token.Account.ID) == "" {
-		s.setError(StateRejected, "企业账号无效")
-		return errors.New("企业账号无效")
 	}
 	encrypted, err := encryptSecret(s.dataDir, token.APIKey)
 	if err != nil {
@@ -412,37 +418,36 @@ func (s *Service) acceptToken(ctx context.Context, deviceCode string, token toke
 		return errStore
 	}
 	s.mu.Lock()
-	previousAccount := ""
-	if s.state.Account != nil {
-		previousAccount = s.state.Account.ID
-	}
 	account := token.Account
+	account.ID = wireID(accountID)
+	if s.state.Device == nil {
+		s.state.Device = &persistedDevice{}
+	}
+	s.state.Device.DeviceCode = deviceCode
 	s.state.EncryptedAPIKey = encrypted
 	s.state.ProviderBaseURL = ProviderBaseURL(s.origin)
 	s.state.Market = "enterprise"
 	s.state.Group = "enterprise"
 	s.state.Account = &account
 	s.state.KeyName = token.KeyName
-	s.state.TokenID = token.TokenID
+	s.state.TokenID = tokenID
 	s.state.Acked = false
 	s.state.CatalogOK = false
+	s.state.Status = StatePending
 	s.state.Balance = BalanceUnknown
 	s.state.LastError = ""
-	if s.state.Device != nil {
-		s.state.Device.DeviceCode = deviceCode
-	}
-	if err := saveState(s.dataDir, s.state); err != nil {
+	if err := s.persistState(s.state); err != nil {
 		s.state.Status = StateStoreError
 		s.state.LastError = "保存连接失败，请重试"
 		s.mu.Unlock()
 		return errStore
 	}
 	s.mu.Unlock()
-	_ = previousAccount
 	return s.finalizeSavedCredential(ctx)
 }
 
 func (s *Service) finalizeSavedCredential(ctx context.Context) error {
+	_ = ctx
 	s.mu.Lock()
 	state := s.state
 	deviceCode := ""
@@ -451,30 +456,40 @@ func (s *Service) finalizeSavedCredential(ctx context.Context) error {
 	}
 	previousAccount := ""
 	if state.Account != nil {
-		previousAccount = state.Account.ID
+		previousAccount = state.Account.ID.String()
 	}
 	s.mu.Unlock()
 	if !state.hasCredential() {
 		return errNotConnected
 	}
+	if !state.Acked {
+		if strings.TrimSpace(deviceCode) == "" {
+			s.markDoomedCredential(StateExpired, "授权已过期，请重新连接")
+			return errAckExpired
+		}
+		if err := s.acknowledgeWithRetry(deviceCode); err != nil {
+			s.noteAckFailure(err)
+			return err
+		}
+		s.mu.Lock()
+		previousDevice := s.state.Device
+		s.state.Acked = true
+		s.state.LastError = ""
+		s.state.Device = nil
+		if err := s.persistState(s.state); err != nil {
+			s.state.Acked = false
+			s.state.Device = previousDevice
+			s.state.Status = StateStoreError
+			s.state.LastError = "保存连接失败，请重试"
+			s.mu.Unlock()
+			return errStore
+		}
+		s.mu.Unlock()
+	}
 	apiKey, err := decryptSecret(s.dataDir, state.EncryptedAPIKey)
 	if err != nil {
 		s.setError(StateStoreError, "保存连接失败，请重试")
 		return errStore
-	}
-	if !state.Acked && deviceCode != "" {
-		if err := s.acknowledge(deviceCode); err != nil {
-			// Local save already succeeded; keep retrying acknowledgement on recover.
-			s.mu.Lock()
-			s.state.LastError = "正在完成连接确认"
-			_ = saveState(s.dataDir, s.state)
-			s.mu.Unlock()
-		} else {
-			s.mu.Lock()
-			s.state.Acked = true
-			_ = saveState(s.dataDir, s.state)
-			s.mu.Unlock()
-		}
 	}
 	models, err := s.fetchModels(apiKey)
 	if err != nil {
@@ -486,16 +501,33 @@ func (s *Service) finalizeSavedCredential(ctx context.Context) error {
 		s.state.Status = StateCatalogFailed
 		s.state.CatalogOK = false
 		s.state.LastError = "模型列表读取失败，请重试"
-		_ = saveState(s.dataDir, s.state)
+		if persistErr := s.persistState(s.state); persistErr != nil {
+			s.state.Status = StateStoreError
+			s.state.LastError = "保存连接失败，请重试"
+			s.mu.Unlock()
+			return errStore
+		}
 		s.mu.Unlock()
 		return err
 	}
 	nextAccount := previousAccount
-	if state.Account != nil {
-		nextAccount = state.Account.ID
+	s.mu.Lock()
+	if s.state.Account != nil {
+		nextAccount = s.state.Account.ID.String()
 	}
+	s.mu.Unlock()
 	if err := applyCatalog(s.provider, models, previousAccount, nextAccount); err != nil {
-		s.setError(StateCatalogFailed, "模型列表读取失败，请重试")
+		s.mu.Lock()
+		s.state.Status = StateCatalogFailed
+		s.state.CatalogOK = false
+		s.state.LastError = "模型列表读取失败，请重试"
+		if persistErr := s.persistState(s.state); persistErr != nil {
+			s.state.Status = StateStoreError
+			s.state.LastError = "保存连接失败，请重试"
+			s.mu.Unlock()
+			return errStore
+		}
+		s.mu.Unlock()
 		return err
 	}
 	s.mu.Lock()
@@ -503,18 +535,74 @@ func (s *Service) finalizeSavedCredential(ctx context.Context) error {
 	s.state.CatalogOK = true
 	s.state.Status = StateConnected
 	s.state.LastError = ""
-	if s.state.Acked {
-		s.state.Device = nil
-	}
+	s.state.Device = nil
 	if s.state.ConnectedAt == "" {
 		s.state.ConnectedAt = s.now().UTC().Format(time.RFC3339Nano)
 	}
-	if err := saveState(s.dataDir, s.state); err != nil {
+	if err := s.persistState(s.state); err != nil {
+		s.state.CatalogOK = false
 		s.state.Status = StateStoreError
 		s.state.LastError = "保存连接失败，请重试"
 		return errStore
 	}
 	return nil
+}
+
+func (s *Service) acknowledgeWithRetry(deviceCode string) error {
+	var last error
+	for attempt := 0; attempt < ackRetryLimit; attempt++ {
+		if attempt > 0 {
+			s.sleep(time.Second)
+		}
+		last = s.acknowledge(deviceCode)
+		if last == nil {
+			return nil
+		}
+		if isPermanentAck(last) {
+			return last
+		}
+	}
+	if last == nil {
+		last = errAckTransient
+	}
+	return last
+}
+
+func (s *Service) noteAckFailure(err error) {
+	switch {
+	case errors.Is(err, errAckExpired):
+		s.markDoomedCredential(StateExpired, "授权已过期，请重新连接")
+	case errors.Is(err, errAckRejected):
+		s.markDoomedCredential(StateRejected, "授权被拒绝")
+	default:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.state.Status = StatePending
+		s.state.Acked = false
+		s.state.CatalogOK = false
+		s.state.LastError = "正在完成连接确认"
+		if persistErr := s.persistState(s.state); persistErr != nil {
+			s.state.Status = StateStoreError
+			s.state.LastError = "保存连接失败，请重试"
+		}
+	}
+}
+
+func (s *Service) markDoomedCredential(status, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Status = status
+	s.state.LastError = message
+	s.state.EncryptedAPIKey = ""
+	s.state.Acked = false
+	s.state.CatalogOK = false
+	s.state.Device = nil
+	s.state.TokenID = ""
+	s.state.Account = nil
+	if persistErr := s.persistState(s.state); persistErr != nil {
+		s.state.Status = StateStoreError
+		s.state.LastError = "保存连接失败，请重试"
+	}
 }
 
 func (s *Service) verifyRemote() {
@@ -556,7 +644,7 @@ func (s *Service) setError(status, message string) {
 			s.pollCancel = nil
 		}
 	}
-	_ = saveState(s.dataDir, s.state)
+	_ = s.persistState(s.state)
 }
 
 func (s *Service) summaryLocked() Summary {

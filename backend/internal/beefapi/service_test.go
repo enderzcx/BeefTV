@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,33 +20,22 @@ import (
 )
 
 type fakeEnterprise struct {
-	mu             sync.Mutex
-	codes          int
-	tokenCalls     int
-	completes      int
-	cancels        int
-	deletes        int
-	pending        atomic.Int32
-	mode           string
-	savedKey       string
-	completeBefore bool
-	dropComplete   bool
-	catalogFail    bool
-	opened         []string
+	mu           sync.Mutex
+	codes        int
+	tokenCalls   int
+	completes    int
+	cancels      int
+	deletes      int
+	pending      atomic.Int32
+	mode         string
+	completeMode string
+	catalogFail  bool
+	opened       []string
 }
 
 func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/oauth/device/code", func(w http.ResponseWriter, r *http.Request) {
-		fake.mu.Lock()
-		fake.codes++
-		fake.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"device_code": "dev-1", "user_code": "ABCD-EFGH",
-			"verification_uri": r.Host, "expires_in": 60, "interval": 1,
-		})
-	})
 	mux.HandleFunc("/api/oauth/device/token", func(w http.ResponseWriter, r *http.Request) {
 		fake.tokenCalls++
 		switch fake.mode {
@@ -60,27 +51,39 @@ func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
 			return
+		case "nomarket":
+			writeNumericToken(w, r, "", "enterprise")
+			return
+		case "nogroup":
+			writeNumericToken(w, r, "enterprise", "")
+			return
 		}
 		if fake.pending.Add(-1) >= 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
 			return
 		}
-		origin := "http://" + r.Host
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"api_key": "ent-secret-key", "base_url": origin + "/v1", "market": "enterprise", "group": "enterprise",
-			"key_name": "BeefTV", "token_id": "tok-1",
-			"account": map[string]string{"id": "acct-1", "username": "ender", "display_name": "Ender", "email": "e@example.com"},
-		})
+		writeNumericToken(w, r, "enterprise", "enterprise")
 	})
 	mux.HandleFunc("/api/oauth/device/complete", func(w http.ResponseWriter, r *http.Request) {
 		fake.mu.Lock()
 		fake.completes++
-		drop := fake.dropComplete && fake.completes == 1
+		mode := fake.completeMode
+		count := fake.completes
 		fake.mu.Unlock()
-		if drop {
+		switch mode {
+		case "never":
 			w.WriteHeader(http.StatusBadGateway)
 			return
+		case "expired":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "expired_token"})
+			return
+		case "drop":
+			if count == 1 {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
@@ -99,10 +102,8 @@ func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"market": "enterprise", "token_id": "tok-1", "key_name": "BeefTV",
-			"account": map[string]string{"id": "acct-1", "username": "ender", "display_name": "Ender"},
-		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"market":"enterprise","token_id":9001,"key_name":"BeefTV","account":{"id":42,"username":"ender","display_name":"Ender"}}`)
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		if fake.catalogFail {
@@ -118,10 +119,11 @@ func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/oauth/device/code" {
+			origin := requestOrigin(r)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code": "dev-1", "user_code": "ABCD-EFGH",
-				"verification_uri":          "http://" + r.Host + "/desktop-auth",
-				"verification_uri_complete": "http://" + r.Host + "/desktop-auth?user_code=ABCD-EFGH",
+				"verification_uri":          origin + "/desktop-auth",
+				"verification_uri_complete": origin + "/desktop-auth?user_code=ABCD-EFGH",
 				"expires_in":                60, "interval": 1,
 			})
 			fake.codes++
@@ -133,17 +135,64 @@ func newEnterpriseServer(t *testing.T, fake *fakeEnterprise) *httptest.Server {
 	return server
 }
 
-func testService(t *testing.T, fake *fakeEnterprise) (*Service, *workspace.ProviderConfig) {
+func writeNumericToken(w http.ResponseWriter, r *http.Request, market, group string) {
+	origin := requestOrigin(r)
+	payload := map[string]any{
+		"api_key": "ent-secret-key", "base_url": origin + "/v1",
+		"key_name": "BeefTV", "token_id": 9001,
+		"account": map[string]any{"id": 42, "username": "ender", "display_name": "Ender", "email": "e@example.com"},
+	}
+	if market != "" {
+		payload["market"] = market
+	}
+	if group != "" {
+		payload["group"] = group
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func requestOrigin(r *http.Request) string {
+	return "http://" + r.Host
+}
+
+type previewRoundTripper struct {
+	port string
+	base http.RoundTripper
+}
+
+func (t previewRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	if strings.EqualFold(cloned.URL.Hostname(), PreviewLocalHost) {
+		cloned.URL.Host = net.JoinHostPort("127.0.0.1", t.port)
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(cloned)
+}
+
+func previewClient(server *httptest.Server) (origin string, client *http.Client) {
+	parsed, _ := url.Parse(server.URL)
+	origin = "http://" + net.JoinHostPort(PreviewLocalHost, parsed.Port())
+	base := server.Client()
+	client = &http.Client{Transport: previewRoundTripper{port: parsed.Port(), base: base.Transport}, Timeout: base.Timeout}
+	return origin, client
+}
+
+func testService(t *testing.T, fake *fakeEnterprise) (*Service, *workspace.ProviderConfig, string) {
 	t.Helper()
 	server := newEnterpriseServer(t, fake)
+	origin, client := previewClient(server)
 	dir := t.TempDir()
 	store, err := workspace.NewProviderConfig(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc, err := New(Options{
-		DataDir: dir, Origin: server.URL, Provider: store, ClientVersion: "test", Hostname: "testhost",
-		HTTPClient: server.Client(),
+		DataDir: dir, Origin: origin, Provider: store, ClientVersion: "test", Hostname: "testhost",
+		HTTPClient: client,
 		OpenURL: func(raw string) error {
 			fake.opened = append(fake.opened, raw)
 			return nil
@@ -154,7 +203,7 @@ func testService(t *testing.T, fake *fakeEnterprise) (*Service, *workspace.Provi
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
-	return svc, store
+	return svc, store, dir
 }
 
 func waitState(t *testing.T, svc *Service, want string) Summary {
@@ -172,9 +221,24 @@ func waitState(t *testing.T, svc *Service, want string) Summary {
 	return summary
 }
 
+func waitHasCredential(t *testing.T, svc *Service) Summary {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		summary := svc.Status()
+		if summary.HasCredential {
+			return summary
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	summary := svc.Status()
+	t.Fatalf("missing credential: %#v", summary)
+	return summary
+}
+
 func TestConnectionHappyPathSavesBeforeAckAndHidesKey(t *testing.T) {
 	fake := &fakeEnterprise{}
-	svc, store := testService(t, fake)
+	svc, store, _ := testService(t, fake)
 	summary, err := svc.Start(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -182,18 +246,21 @@ func TestConnectionHappyPathSavesBeforeAckAndHidesKey(t *testing.T) {
 	if summary.State != StatePending || summary.UserCode != "ABCD-EFGH" {
 		t.Fatalf("start summary = %#v", summary)
 	}
-	if len(fake.opened) != 1 || !strings.Contains(fake.opened[0], "/desktop-auth") {
+	if len(fake.opened) != 1 || !strings.Contains(fake.opened[0], "/desktop-auth") || !strings.Contains(fake.opened[0], PreviewLocalHost) {
 		t.Fatalf("opened = %#v", fake.opened)
 	}
 	connected := waitState(t, svc, StateConnected)
-	if connected.Account == nil || connected.Account.ID != "acct-1" || connected.HasCredential != true {
+	if connected.Account == nil || connected.Account.ID.String() != "42" || connected.TokenID != "9001" || !connected.HasCredential {
 		t.Fatalf("connected = %#v", connected)
+	}
+	if !strings.HasSuffix(connected.WalletURL, "/console/topup") {
+		t.Fatalf("wallet = %q", connected.WalletURL)
 	}
 	if strings.Contains(mustJSON(t, connected), "ent-secret-key") {
 		t.Fatal("summary leaked api key")
 	}
 	cred, err := svc.Resolve()
-	if err != nil || cred.APIKey != "ent-secret-key" {
+	if err != nil || cred.APIKey != "ent-secret-key" || cred.AccountID != "42" || cred.TokenID != "9001" {
 		t.Fatalf("resolve = %#v err=%v", cred, err)
 	}
 	effective, _, err := store.LoadEffectiveModelConfig()
@@ -216,9 +283,43 @@ func TestConnectionHappyPathSavesBeforeAckAndHidesKey(t *testing.T) {
 	}
 }
 
+func TestNumericWireIDsRoundTripTokenAndConnection(t *testing.T) {
+	fake := &fakeEnterprise{}
+	svc, _, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	connected := waitState(t, svc, StateConnected)
+	if connected.Account.ID.String() != "42" || connected.TokenID != "9001" {
+		t.Fatalf("ui ids = %#v", connected)
+	}
+	view, status, err := svc.remoteConnection("ent-secret-key")
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("connection GET status=%d err=%v", status, err)
+	}
+	if view.Account.ID.String() != "42" || view.TokenID.String() != "9001" {
+		t.Fatalf("connection view = %#v", view)
+	}
+}
+
+func TestMissingMarketIsRejectedWithoutLeakingSecret(t *testing.T) {
+	fake := &fakeEnterprise{mode: "nomarket"}
+	svc, _, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	summary := waitState(t, svc, StateRejected)
+	if strings.Contains(mustJSON(t, summary), "ent-secret-key") || strings.Contains(summary.ErrorReason, "ent-secret-key") {
+		t.Fatalf("leaked secret: %#v", summary)
+	}
+	if summary.HasCredential {
+		t.Fatal("rejected token must not keep a connected credential")
+	}
+}
+
 func TestConnectionRejectedAndExpiredAreDistinct(t *testing.T) {
 	fake := &fakeEnterprise{mode: "denied"}
-	svc, _ := testService(t, fake)
+	svc, _, _ := testService(t, fake)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +329,7 @@ func TestConnectionRejectedAndExpiredAreDistinct(t *testing.T) {
 	}
 
 	fake = &fakeEnterprise{mode: "expired"}
-	svc, _ = testService(t, fake)
+	svc, _, _ = testService(t, fake)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +340,7 @@ func TestConnectionRejectedAndExpiredAreDistinct(t *testing.T) {
 
 func TestCancelDoesNotDuplicateRemoteEffects(t *testing.T) {
 	fake := &fakeEnterprise{mode: "pending"}
-	svc, _ := testService(t, fake)
+	svc, _, _ := testService(t, fake)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -257,32 +358,151 @@ func TestCancelDoesNotDuplicateRemoteEffects(t *testing.T) {
 	}
 }
 
-func TestLostAckIsRetriedOnRecover(t *testing.T) {
-	fake := &fakeEnterprise{dropComplete: true}
-	svc, _ := testService(t, fake)
+func TestAckLostResponseRetriesInSameProcess(t *testing.T) {
+	fake := &fakeEnterprise{completeMode: "drop"}
+	svc, _, _ := testService(t, fake)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitState(t, svc, StateConnected)
-	if fake.completes < 1 {
-		t.Fatal("first ack attempt missing")
+	connected := waitState(t, svc, StateConnected)
+	if connected.Account.ID.String() != "42" {
+		t.Fatalf("connected = %#v", connected)
 	}
-	if err := svc.Recover(context.Background()); err != nil {
+	if fake.completes < 2 {
+		t.Fatalf("ack retries = %d", fake.completes)
+	}
+}
+
+func TestAckLostResponseRecoversAfterRestart(t *testing.T) {
+	fake := &fakeEnterprise{completeMode: "never"}
+	svc, _, dir := testService(t, fake)
+	origin := svc.Origin()
+	client := svc.httpClient
+	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	saved := waitHasCredential(t, svc)
+	if saved.State == StateConnected {
+		t.Fatal("unacked key must not report connected")
+	}
+	onDisk, err := loadState(dir)
+	if err != nil || onDisk.Device == nil || onDisk.Device.DeviceCode == "" || onDisk.Acked {
+		t.Fatalf("durable recovery missing: %#v err=%v", onDisk, err)
+	}
+	svc.Close()
+	restartDir := t.TempDir()
+	copyWorkspaceFile(t, dir, restartDir, connectionStoreFile)
+	copyWorkspaceFile(t, dir, restartDir, ".settings-key")
+	fake.completeMode = ""
+	store, err := workspace.NewProviderConfig(restartDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(Options{
+		DataDir: restartDir, Origin: origin, Provider: store, ClientVersion: "test", Hostname: "testhost",
+		HTTPClient: client, OpenURL: func(string) error { return nil }, Sleep: func(time.Duration) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if err := restarted.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	connected := waitState(t, restarted, StateConnected)
+	if connected.TokenID != "9001" || connected.Account.ID.String() != "42" {
+		t.Fatalf("restarted = %#v", connected)
+	}
+}
+
+func copyWorkspaceFile(t *testing.T, fromDir, toDir, name string) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(fromDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(toDir, name), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAckNeverAcceptedDoesNotReportConnected(t *testing.T) {
+	fake := &fakeEnterprise{completeMode: "never"}
+	svc, _, dir := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	saved := waitHasCredential(t, svc)
+	if saved.State == StateConnected {
+		t.Fatal("never-acked session reported connected")
+	}
+	if err := svc.Recover(context.Background()); err == nil && svc.Status().State == StateConnected {
+		t.Fatal("recover connected a doomed unacked key")
+	}
+	onDisk, err := loadState(dir)
+	if err != nil || onDisk.Acked || onDisk.Device == nil || onDisk.Device.DeviceCode == "" {
+		t.Fatalf("device_code dropped before ack: %#v err=%v", onDisk, err)
+	}
+}
+
+func TestPermanentAckExpiryDoesNotKeepDoomedKeyConnected(t *testing.T) {
+	fake := &fakeEnterprise{completeMode: "expired"}
+	svc, _, _ := testService(t, fake)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	summary := waitState(t, svc, StateExpired)
+	if summary.HasCredential || summary.State == StateConnected {
+		t.Fatalf("doomed key kept: %#v", summary)
+	}
+	if _, err := svc.Resolve(); err == nil {
+		t.Fatal("doomed key remained resolvable")
+	}
+}
+
+func TestAckedSaveFailureDoesNotReportConnected(t *testing.T) {
+	fake := &fakeEnterprise{}
+	server := newEnterpriseServer(t, fake)
+	origin, client := previewClient(server)
+	dir := t.TempDir()
+	store, err := workspace.NewProviderConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := New(Options{
+		DataDir: dir, Origin: origin, Provider: store, ClientVersion: "test", Hostname: "testhost",
+		HTTPClient: client, OpenURL: func(string) error { return nil }, Sleep: func(time.Duration) {},
+		Persist: func(state persistedState) error {
+			if state.Acked {
+				return os.ErrPermission
+			}
+			return saveState(dir, state)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitHasCredential(t, svc)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if fake.completes >= 2 {
-			return
+		if svc.Status().State == StateConnected {
+			t.Fatal("acked save failure reported connected")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("ack retries = %d", fake.completes)
+	onDisk, err := loadState(dir)
+	if err != nil || onDisk.Acked || onDisk.Status == StateConnected {
+		t.Fatalf("disk = %#v err=%v", onDisk, err)
+	}
 }
 
 func TestCatalogFailureIsNotConnected(t *testing.T) {
 	fake := &fakeEnterprise{catalogFail: true}
-	svc, _ := testService(t, fake)
+	svc, _, _ := testService(t, fake)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +517,7 @@ func TestCatalogFailureIsNotConnected(t *testing.T) {
 
 func TestDisconnectRevokesOnlyCurrentKey(t *testing.T) {
 	fake := &fakeEnterprise{}
-	svc, store := testService(t, fake)
+	svc, store, _ := testService(t, fake)
 	if err := store.SaveLocalModelConfig([]byte(`{"channels":[{"id":"other","apiKey":"keep-me","enabled":true,"models":["x"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +541,17 @@ func TestDisconnectRevokesOnlyCurrentKey(t *testing.T) {
 	other := findChannel(effective.Config["channels"].([]any), "other")
 	if other["apiKey"] != "keep-me" {
 		t.Fatalf("unrelated channel overwritten: %#v", other)
+	}
+}
+
+func TestOpenWalletUsesConsoleTopup(t *testing.T) {
+	fake := &fakeEnterprise{}
+	svc, _, _ := testService(t, fake)
+	if err := svc.OpenWallet(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.opened) != 1 || !strings.HasSuffix(fake.opened[0], "/console/topup") || !strings.Contains(fake.opened[0], PreviewLocalHost) {
+		t.Fatalf("opened = %#v", fake.opened)
 	}
 }
 

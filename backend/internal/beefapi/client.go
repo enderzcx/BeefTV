@@ -3,6 +3,7 @@ package beefapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,7 +38,7 @@ type tokenSuccess struct {
 	Market  string  `json:"market"`
 	Group   string  `json:"group"`
 	KeyName string  `json:"key_name"`
-	TokenID string  `json:"token_id"`
+	TokenID wireID  `json:"token_id"`
 	Account Account `json:"account"`
 }
 
@@ -55,7 +56,7 @@ type oauthError struct {
 type connectionView struct {
 	Market  string  `json:"market"`
 	Account Account `json:"account"`
-	TokenID string  `json:"token_id"`
+	TokenID wireID  `json:"token_id"`
 	KeyName string  `json:"key_name"`
 }
 
@@ -153,21 +154,54 @@ func (s *Service) pollToken(deviceCode string) (tokenSuccess, string, error) {
 	return tokenSuccess{}, code, nil
 }
 
+var (
+	errAckTransient = fmt.Errorf("确认企业授权失败")
+	errAckExpired   = fmt.Errorf("授权已过期，请重新连接")
+	errAckRejected  = fmt.Errorf("授权被拒绝")
+)
+
 func (s *Service) acknowledge(deviceCode string) error {
 	response, raw, err := s.postJSON("/api/oauth/device/complete", completeRequest{ClientID: ClientID, DeviceCode: deviceCode}, nil)
 	if err != nil {
-		return fmt.Errorf("确认企业授权失败")
+		return errAckTransient
 	}
-	if response.StatusCode >= 300 {
-		return fmt.Errorf("确认企业授权失败")
+	if response.StatusCode == http.StatusOK {
+		var result struct {
+			Success bool `json:"success"`
+		}
+		if err := json.Unmarshal(raw, &result); err == nil && result.Success {
+			return nil
+		}
+		if err := permanentAckError(parseOAuthError(raw)); err != nil {
+			return err
+		}
+		return errAckTransient
 	}
-	var result struct {
-		Success bool `json:"success"`
+	if response.StatusCode >= 500 || response.StatusCode == http.StatusTooManyRequests {
+		return errAckTransient
 	}
-	if err := json.Unmarshal(raw, &result); err != nil || !result.Success {
-		return fmt.Errorf("确认企业授权失败")
+	if err := permanentAckError(parseOAuthError(raw)); err != nil {
+		return err
 	}
-	return nil
+	if response.StatusCode >= 400 {
+		return permanentAckError("invalid_request")
+	}
+	return errAckTransient
+}
+
+func permanentAckError(code string) error {
+	switch code {
+	case "expired_token", "expired", "invalid_request":
+		return errAckExpired
+	case "access_denied", "denied", "rejected":
+		return errAckRejected
+	default:
+		return nil
+	}
+}
+
+func isPermanentAck(err error) bool {
+	return errors.Is(err, errAckExpired) || errors.Is(err, errAckRejected)
 }
 
 func (s *Service) cancelRemote(deviceCode string) error {
@@ -308,4 +342,28 @@ func firstNonEmpty(values ...string) string {
 
 func defaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 20 * time.Second}
+}
+
+func validateTokenSuccess(origin string, token tokenSuccess) (accountID, tokenID string, err error) {
+	if err := ValidateReturnedBaseURL(origin, token.BaseURL); err != nil {
+		return "", "", err
+	}
+	if token.Market != "enterprise" {
+		return "", "", errors.New("企业授权市场无效")
+	}
+	if token.Group != "enterprise" {
+		return "", "", errors.New("企业授权分组无效")
+	}
+	if strings.TrimSpace(token.APIKey) == "" {
+		return "", "", errors.New("企业授权密钥无效")
+	}
+	accountID, err = positiveIdentity(token.Account.ID, "企业账号无效")
+	if err != nil {
+		return "", "", err
+	}
+	tokenID, err = positiveIdentity(token.TokenID, "企业授权凭证无效")
+	if err != nil {
+		return "", "", err
+	}
+	return accountID, tokenID, nil
 }

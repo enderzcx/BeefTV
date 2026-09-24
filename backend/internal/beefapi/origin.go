@@ -10,11 +10,13 @@ import (
 
 const (
 	ProductionOrigin = "https://enterprise.beefapi.com"
+	PreviewLocalHost = "enterprise.localhost"
 	ClientID         = "beeftv-enterprise-v1"
 	ClientScope      = "inference"
 	CredentialRef    = "beefapi-enterprise"
 	ChannelID        = "beefapi"
 	TestOriginEnv    = "BEEFTV_ENTERPRISE_TEST_ORIGIN"
+	WalletPath       = "/console/topup"
 )
 
 // CanonicalOrigin is the immutable production enterprise origin unless an
@@ -40,16 +42,24 @@ func parseSafeTestOrigin(raw string) (string, error) {
 		return "", fmt.Errorf("测试企业源地址无效")
 	}
 	if parsed.User != nil || parsed.Opaque != "" || strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("测试企业源地址只能是 loopback 源")
+		return "", fmt.Errorf("测试企业源地址只能是企业预览源")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", fmt.Errorf("测试企业源地址只支持 HTTP 或 HTTPS")
 	}
 	host := parsed.Hostname()
-	if !isLoopbackHost(host) {
-		return "", fmt.Errorf("测试企业源地址只允许 127.0.0.1 或 localhost")
+	if !isSafeTestHost(host) {
+		return "", fmt.Errorf("测试企业源地址只允许 enterprise.localhost 或 loopback")
 	}
 	return parsed.Scheme + "://" + parsed.Host, nil
+}
+
+func isSafeTestHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == PreviewLocalHost {
+		return true
+	}
+	return isLoopbackHost(host)
 }
 
 func isLoopbackHost(host string) bool {
@@ -70,7 +80,7 @@ func TokenBaseURL(origin string) string {
 }
 
 func WalletURL(origin string) string {
-	return ProviderBaseURL(origin) + "/"
+	return ProviderBaseURL(origin) + WalletPath
 }
 
 func ValidateReturnedBaseURL(origin, baseURL string) error {
@@ -109,6 +119,9 @@ func ValidateWalletURL(origin, raw string) (*url.URL, error) {
 	}
 	if !strings.EqualFold(parsed.Scheme+"://"+parsed.Host, origin) {
 		return nil, fmt.Errorf("钱包地址不属于当前企业源")
+	}
+	if parsed.EscapedPath() != WalletPath || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("钱包地址不在允许的充值页")
 	}
 	return parsed, nil
 }

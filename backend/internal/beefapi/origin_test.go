@@ -32,6 +32,50 @@ func TestCanonicalOriginAllowsLoopback(t *testing.T) {
 	}
 }
 
+func TestCanonicalOriginAllowsEnterpriseLocalhostPreview(t *testing.T) {
+	origin, err := CanonicalOrigin("http://enterprise.localhost:35184")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if origin != "http://enterprise.localhost:35184" {
+		t.Fatalf("origin = %q", origin)
+	}
+	t.Setenv(TestOriginEnv, "http://enterprise.localhost:35184")
+	fromEnv, err := CanonicalOrigin("")
+	if err != nil || fromEnv != "http://enterprise.localhost:35184" {
+		t.Fatalf("env origin = %q err=%v", fromEnv, err)
+	}
+}
+
+func TestCanonicalOriginRejectsLookalikePreviewHosts(t *testing.T) {
+	for _, raw := range []string{
+		"http://enterprise.localhost.evil.com",
+		"http://evil.enterprise.localhost",
+		"https://example.com",
+		"http://10.0.0.8:35184",
+	} {
+		if _, err := CanonicalOrigin(raw); err == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
+func TestWalletURLIsConsoleTopup(t *testing.T) {
+	origin := "http://enterprise.localhost:35184"
+	if WalletURL(origin) != origin+"/console/topup" {
+		t.Fatalf("wallet = %q", WalletURL(origin))
+	}
+	if _, err := ValidateWalletURL(origin, origin+"/console/topup"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateWalletURL(origin, origin+"/"); err == nil {
+		t.Fatal("home page must not be a wallet URL")
+	}
+	if _, err := ValidateWalletURL(origin, origin+"/wallet"); err == nil {
+		t.Fatal("speculative /wallet must be rejected")
+	}
+}
+
 func TestValidateVerificationURLRejectsOtherHosts(t *testing.T) {
 	if _, err := ValidateVerificationURL(ProductionOrigin, "https://example.com/desktop-auth"); err == nil {
 		t.Fatal("expected host mismatch")

@@ -23,7 +23,7 @@ const (
 )
 
 type Account struct {
-	ID          string `json:"id"`
+	ID          wireID `json:"id"`
 	Username    string `json:"username,omitempty"`
 	DisplayName string `json:"display_name,omitempty"`
 	Email       string `json:"email,omitempty"`

@@ -58,7 +58,7 @@ paths:
   /beefapi/connection/open-wallet:
     post:
       tags: [beefapi]
-      summary: 在系统浏览器打开企业钱包
+      summary: 在系统浏览器打开企业充值页 /console/topup
       responses:
         "200":
           description: 已打开
