@@ -20,10 +20,7 @@ export function searchCanvasNodes(nodes: CanvasNodeData[], query: string, limit 
 
 export function canvasNodeSearchContext(node: CanvasNodeData) {
     const location = [node.metadata?.chapterTitle, typeof node.metadata?.shotIndex === "number" ? `镜头 ${node.metadata.shotIndex + 1}` : ""].filter(Boolean).join(" · ");
-    const textContent = node.type === CanvasNodeType.Text || node.type === CanvasNodeType.Markdown || node.type === CanvasNodeType.Script || node.type === CanvasNodeType.Skill
-        ? node.metadata?.content
-        : undefined;
-    return location || node.metadata?.prompt || node.metadata?.composerContent || node.metadata?.workflowDescription || textContent || getNodeListLabel(node.type);
+    return location || node.metadata?.prompt || node.metadata?.composerContent || node.metadata?.workflowDescription || textualNodeContent(node) || getNodeListLabel(node.type);
 }
 
 export function canvasNodeMaterialSummary(node: CanvasNodeData) {
@@ -53,6 +50,7 @@ function canvasNodeSearchTerms(node: CanvasNodeData) {
         node.title,
         node.type,
         getNodeListLabel(node.type),
+        textualNodeContent(node),
         node.metadata?.prompt,
         node.metadata?.composerContent,
         node.metadata?.model,
@@ -62,6 +60,14 @@ function canvasNodeSearchTerms(node: CanvasNodeData) {
         typeof node.metadata?.shotIndex === "number" ? `镜头 ${node.metadata.shotIndex + 1}` : "",
         ...(node.metadata?.assetTags || []),
     ].filter((value): value is string => typeof value === "string" && Boolean(value));
+}
+
+function textualNodeContent(node: CanvasNodeData) {
+    if (node.type !== CanvasNodeType.Text && node.type !== CanvasNodeType.Markdown && node.type !== CanvasNodeType.Script && node.type !== CanvasNodeType.Skill) {
+        return undefined;
+    }
+    const content = node.metadata?.content;
+    return typeof content === "string" && content ? content : undefined;
 }
 
 function timestampValue(value?: string) {

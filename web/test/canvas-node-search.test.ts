@@ -84,4 +84,20 @@ describe("canvas node search", () => {
         expect(canvasNodeSearchContext(image)).toBe("图片节点");
         expect(canvasNodeSearchTimes(image)).toMatchObject({ createdAt: image.createdAt, updatedAt: image.updatedAt });
     });
+
+    test("indexes textual node body so name-or-content search can find 123", () => {
+        const text = node("note", { type: CanvasNodeType.Text, title: "备注", metadata: { content: "123" } });
+        const markdown = node("doc", { type: CanvasNodeType.Markdown, title: "说明", metadata: { content: "abc 123 xyz" } });
+        expect(searchCanvasNodes([text, markdown], "123").map((item) => item.id)).toEqual(["note", "doc"]);
+    });
+
+    test("does not index media URLs stored in metadata.content", () => {
+        const video = node("clip", { type: CanvasNodeType.Video, title: "镜头A", metadata: { content: "blob:http://localhost/unique-media-token-xyz" } });
+        const image = node("pic", { type: CanvasNodeType.Image, title: "图片A", metadata: { content: "data:image/png;base64,AAAA123TOKEN" } });
+        const audio = node("snd", { type: CanvasNodeType.Audio, title: "音效A", metadata: { content: "blob:http://localhost/audio-secret-url" } });
+        expect(searchCanvasNodes([video, image, audio], "unique-media-token-xyz")).toEqual([]);
+        expect(searchCanvasNodes([video, image, audio], "AAAA123TOKEN")).toEqual([]);
+        expect(searchCanvasNodes([video, image, audio], "audio-secret-url")).toEqual([]);
+        expect(searchCanvasNodes([video, image, audio], "123")).toEqual([]);
+    });
 });
