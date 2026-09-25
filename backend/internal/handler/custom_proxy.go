@@ -68,9 +68,29 @@ func proxyCustomRelayRequestWithService(c *gin.Context, policy app.RuntimeReques
 		fail(c, http.StatusForbidden, err)
 		return
 	}
-	apiKey, err := customRelayAPIKey(c.GetHeader("Authorization"))
-	if err != nil {
-		fail(c, http.StatusUnauthorized, err)
+	apiKey := ""
+	if header := strings.TrimSpace(c.GetHeader("Authorization")); header != "" {
+		parsed, keyErr := customRelayAPIKey(header)
+		if keyErr != nil && svc == nil {
+			fail(c, http.StatusUnauthorized, keyErr)
+			return
+		}
+		if keyErr == nil {
+			apiKey = parsed
+		}
+	}
+	if svc != nil {
+		resolved, resolveErr := svc.ResolveCustomRelayAPIKey(target.String(), apiKey)
+		if resolveErr != nil {
+			failService(c, resolveErr)
+			return
+		}
+		if resolved != "" {
+			apiKey = resolved
+		}
+	}
+	if apiKey == "" {
+		fail(c, http.StatusUnauthorized, errors.New("自定义渠道 API Key 无效"))
 		return
 	}
 	headers, err := app.DecodeRelayOutboundHeaders(c.GetHeader(app.CustomRelayHeadersHeader))

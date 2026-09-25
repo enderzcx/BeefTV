@@ -17,6 +17,9 @@ const MIME_EXTENSIONS: Record<string, string> = {
     "audio/mp4": "m4a",
     "audio/wav": "wav",
     "audio/x-wav": "wav",
+    "audio/wave": "wav",
+    "audio/vnd.wave": "wav",
+    "audio/x-pn-wav": "wav",
     "audio/aac": "aac",
     "audio/flac": "flac",
     "audio/ogg": "ogg",
@@ -29,6 +32,16 @@ export function buildCanvasMediaDownloadFileName(canvasTitle: string, node: Canv
     const canvasName = safeFileNamePart(canvasTitle, "未命名画布");
     const nodeName = safeFileNamePart(node.title, defaultNodeName(node.type));
     return `${canvasName}_${nodeName}_${formatDownloadDate(now)}.${canvasMediaFileExtension(node)}`;
+}
+
+export function sanitizeDownloadFileName(value: string, fallback = "未命名文件") {
+    const leaf = value.trim().replace(/\\/g, "/").split("/").pop() || "";
+    const lastDot = leaf.lastIndexOf(".");
+    const extension = lastDot > 0 ? leaf.slice(lastDot + 1) : "";
+    const base = lastDot > 0 ? leaf.slice(0, lastDot) : leaf;
+    const safeBase = safeFileNamePart(base, fallback);
+    if (!extension || !/^[a-z0-9]{1,8}$/i.test(extension)) return safeBase;
+    return `${safeBase}.${extension.toLowerCase() === "jpeg" ? "jpg" : extension.toLowerCase()}`;
 }
 
 export function canvasMediaFileExtension(node: CanvasNodeData) {

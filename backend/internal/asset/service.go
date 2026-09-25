@@ -6,7 +6,6 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"infinite-canvas/backend/internal/model"
 )
@@ -56,8 +55,8 @@ func (s *Service) validateLocalResource(resource *model.Resource) error {
 	if resource.Provider != "local" {
 		return fmt.Errorf("资源 %s 不属于本地存储", resource.ID)
 	}
-	clean := filepath.Clean(filepath.FromSlash(resource.ObjectKey))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	clean, err := localizedObjectKey(resource.ObjectKey)
+	if err != nil {
 		return fmt.Errorf("资源 %s 的本地路径无效", resource.ID)
 	}
 	if resource.Status == model.ResourceStatusReady {

@@ -12,10 +12,12 @@ import (
 )
 
 type ChannelModelsRequest struct {
-	BaseURL   string           `json:"baseUrl"`
-	APIKey    string           `json:"apiKey"`
-	APIFormat string           `json:"apiFormat"`
-	Headers   []OutboundHeader `json:"headers"`
+	BaseURL       string           `json:"baseUrl"`
+	APIKey        string           `json:"apiKey"`
+	APIFormat     string           `json:"apiFormat"`
+	Headers       []OutboundHeader `json:"headers"`
+	ChannelID     string           `json:"channelId"`
+	CredentialRef string           `json:"credentialRef"`
 }
 
 type channelModelsPayload struct {
@@ -104,6 +106,9 @@ type ChannelModelCatalogOption struct {
 func (s *Service) FetchChannelModelCatalog(ctx context.Context, actor *model.User, input ChannelModelsRequest) ([]ChannelModelCatalogItem, error) {
 	if actor == nil || strings.TrimSpace(actor.ID) == "" {
 		return nil, Unauthorized("请先登录")
+	}
+	if err := s.resolveChannelModelsRequest(&input); err != nil {
+		return nil, err
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	apiKey := strings.TrimSpace(input.APIKey)

@@ -5,6 +5,7 @@ import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
+import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKey, workflowFieldRandomKey, workflowFieldSubmissionValue, workflowOutputSizeValue, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
@@ -451,12 +452,14 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         videoGenerateAudio: node?.metadata?.generateAudio ?? config.videoGenerateAudio ?? defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark ?? config.videoWatermark ?? defaultConfig.videoWatermark,
         videoArkPrivateAssetUpload: node?.metadata?.arkPrivateAssetUpload ?? config.videoArkPrivateAssetUpload ?? defaultConfig.videoArkPrivateAssetUpload,
-        audioVoice: node?.metadata?.audioVoice ?? config.audioVoice ?? defaultConfig.audioVoice,
-        audioFormat: node?.metadata?.audioFormat ?? config.audioFormat ?? defaultConfig.audioFormat,
-        audioSpeed: node?.metadata?.audioSpeed ?? config.audioSpeed ?? defaultConfig.audioSpeed,
-        audioPitch: node?.metadata?.audioPitch ?? config.audioPitch ?? defaultConfig.audioPitch,
-        audioVolume: node?.metadata?.audioVolume ?? config.audioVolume ?? defaultConfig.audioVolume,
-        audioInstructions: node?.metadata?.audioInstructions ?? config.audioInstructions ?? defaultConfig.audioInstructions,
+        ...resolveAudioSpeechSettings(preferredModel, {
+            audioVoice: node?.metadata?.audioVoice ?? config.audioVoice,
+            audioFormat: node?.metadata?.audioFormat ?? config.audioFormat,
+            audioSpeed: node?.metadata?.audioSpeed ?? config.audioSpeed,
+            audioPitch: node?.metadata?.audioPitch ?? config.audioPitch,
+            audioVolume: node?.metadata?.audioVolume ?? config.audioVolume,
+            audioInstructions: node?.metadata?.audioInstructions ?? config.audioInstructions,
+        }),
         count: String(node?.metadata?.count ?? (mode === "image" ? config.canvasImageCount || config.count || defaultConfig.count : config.count || defaultConfig.count)),
     };
     const imageSize = mode === "image" ? requestedConfig.size : undefined;

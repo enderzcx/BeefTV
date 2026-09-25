@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 )
@@ -32,7 +33,8 @@ func (s *Service) cloudAgentModelList(intent *ModelRequestIntent) (any, error) {
 			}
 		}
 	}
-	return map[string]any{"source": catalog.Source, "models": items, "intent": intent}, nil
+	payload := map[string]any{"source": catalog.Source, "models": items, "intent": intent}
+	return s.appendLocalBeefAPIModels(payload, intent), nil
 }
 
 // Resolve actual canvas resources before filtering the shared catalog. Counts
@@ -169,6 +171,14 @@ func (s *Service) cloudAgentMediaModelName(a cloudAgentMediaArgs) (string, error
 			if m.ModelKey == a.ChannelModelKey && m.Available && normalizeCapability(m.Capability) == normalizeCapability(a.Mode) {
 				return m.DisplayName, nil
 			}
+		}
+	}
+	if item, ok := s.localChannelModel(a.ChannelID, a.ChannelModelKey); ok {
+		if item.Enabled && item.Protocol != "" && normalizeCapability(item.Capability) == normalizeCapability(a.Mode) && cloudAgentGenerationModeSupported(item.Capability) {
+			if item.DisplayName != "" {
+				return item.DisplayName, nil
+			}
+			return item.Model, nil
 		}
 	}
 	return "", BadAuthRequest("模型目录已变化，请重新读取目录并询问用户选择模型")
@@ -489,6 +499,22 @@ func (s *Service) prepareCloudAgentMedia(run *model.CloudAgentExecution, state *
 	config := map[string]any{"count": "1"}
 	if a.ChannelID != "" {
 		config["channelId"], config["channelModelKey"], config["model"] = a.ChannelID, a.ChannelModelKey, a.ChannelModelKey
+		if item, ok := s.localChannelModel(a.ChannelID, a.ChannelModelKey); ok {
+			if item.Protocol != "" {
+				config["interfaceType"] = item.Protocol
+			}
+			if item.BaseURL != "" {
+				config["baseUrl"] = item.BaseURL
+			}
+			if item.CapabilityConfig != nil {
+				config["capabilityConfig"] = item.CapabilityConfig
+			} else if defaults := DefaultModelCapabilityConfigForModel(item.Protocol, item.Model); defaults != nil {
+				config["capabilityConfig"] = defaults
+			}
+			if item.ChannelID == beefapi.ChannelID {
+				config["credentialRef"] = managedBeefAPIRef
+			}
+		}
 	}
 	if a.Mode == "video" {
 		config["videoSeconds"] = fmt.Sprint(a.Duration)

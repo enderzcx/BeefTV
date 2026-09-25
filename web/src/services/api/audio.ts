@@ -1,7 +1,7 @@
-import { audioMimeType, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, normalizeAudioVolumeValue } from "@/lib/audio-generation";
+import { audioMimeType, buildAudioSpeechRequest, normalizeAudioFormatValue } from "@/lib/audio-generation";
 import { createChannelTransport } from "@/services/api/channel-transport";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
-import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, channelHasGenerationCredential, isBuiltinBeefAPIChannel, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -14,21 +14,12 @@ function audioTransport(config: AiConfig) {
 }
 
 export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.audioModel);
+    const selectedModel = (config.model || config.audioModel).trim();
+    const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const model = requestConfig.model.trim();
-    assertAudioConfig(requestConfig, model);
-    const format = normalizeAudioFormatValue(config.audioFormat);
-    const instructions = config.audioInstructions.trim();
-    const payload = {
-        model,
-        input: prompt,
-        voice: normalizeAudioVoiceValue(config.audioVoice),
-        response_format: format,
-        speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
-        pitch: Number(normalizeAudioPitchValue(config.audioPitch)),
-        volume: Number(normalizeAudioVolumeValue(config.audioVolume)),
-        ...(instructions ? { instructions } : {}),
-    };
+    assertAudioConfig(requestConfig, selectedModel);
+    const format = normalizeAudioFormatValue(config.audioFormat, model);
+    const payload = buildAudioSpeechRequest({ ...config, model }, prompt);
 
     try {
         if (requestConfig.interfaceType === "async-audio") {
@@ -142,10 +133,13 @@ export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<U
     return uploadMediaFile(audio, "audio");
 }
 
-function assertAudioConfig(config: AiConfig, model: string) {
-    if (!model) throw new Error("请先配置音频模型");
+export function assertAudioConfig(config: AiConfig, selectedModel: string) {
+    if (!selectedModel.trim() && !config.model.trim()) throw new Error("请先配置音频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
-    if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
+    const channel = resolveModelChannel(config, selectedModel || config.model);
+    if (!channelHasGenerationCredential(channel)) {
+        throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接 BeefAPI" : "请先配置 API Key");
+    }
     if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持音频生成，请使用 OpenAI 格式渠道");
 }
 

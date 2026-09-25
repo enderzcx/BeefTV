@@ -127,7 +127,8 @@ import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
-import { refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
+import { persistCanvasDocument, persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
+import { bindMissingCanvasResourceAssets, canvasNodesMissingResourceAssetBinding } from "@/lib/canvas/canvas-node-asset";
 import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasOperationHistory } from "./use-canvas-operation-history";
@@ -359,6 +360,7 @@ function InfiniteCanvasPage() {
     const workspaceMode: CanvasWorkspaceMode = "professional";
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [generationHistoryOpen, setGenerationHistoryOpen] = useState(false);
+    const insertingHistoryRef = useRef(false);
     const [tapNowImportOpen, setTapNowImportOpen] = useState(false);
     const [nodeSearchOpen, setNodeSearchOpen] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
@@ -1434,6 +1436,7 @@ function InfiniteCanvasPage() {
     }, [containerRef, createNode, fitCanvasSelection, nodesRef, projectLoaded, searchParams, setSearchParams]);
 
     const insertGenerationHistoryTask = useCallback(async (task: GenerationTask) => {
+        if (insertingHistoryRef.current) return;
         const mode = generationTaskMode(task);
         const nodeType = mode === "video" ? CanvasNodeType.Video : mode === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Image;
         const node = createCanvasNode(nodeType, getCanvasCenter(), {
@@ -1449,10 +1452,19 @@ function InfiniteCanvasPage() {
             model: task.model,
         });
         node.title = mode === "video" ? "历史视频" : mode === "audio" ? "历史音频" : "历史图片";
+        insertingHistoryRef.current = true;
         try {
             const applied = await applyGenerationTaskResultToNodes([node], task, node.id);
             if (!applied.node) throw new Error("生成结果无法定位到画布节点");
-            const nextNodes = [...nodesRef.current, applied.node];
+            const nextNodes = await bindMissingCanvasResourceAssets(
+                [...nodesRef.current, applied.node],
+                useAssetStore.getState().assets,
+                (item) => ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node: item, source: "canvas-generation", taskId: task.id }),
+            );
+            if (canvasNodesMissingResourceAssetBinding(nextNodes).length) {
+                throw new Error("生成结果尚未进入素材库，无法插入画布");
+            }
+            await persistCanvasDocument(projectId, { nodes: nextNodes });
             nodesRef.current = nextNodes;
             setNodes(nextNodes);
             setSelectedNodeIds(new Set([applied.node.id]));
@@ -1460,8 +1472,10 @@ function InfiniteCanvasPage() {
             message.success("已从生成历史插入到画布");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "生成结果无法插入画布");
+        } finally {
+            insertingHistoryRef.current = false;
         }
-    }, [getCanvasCenter, message, nodesRef, setNodes, setSelectedNodeIds]);
+    }, [currentProject?.projectId, getCanvasCenter, message, nodesRef, projectId, setNodes, setSelectedNodeIds]);
 
     const handleReplaceNodeReference = useCallback(
         (targetNodeId: string, oldReference: { id: string; nodeId?: string; label?: string; title?: string }, sourceNodeId: string) => {
@@ -3541,7 +3555,7 @@ function InfiniteCanvasPage() {
                                     setTimelineNodeId(null);
                                     setSubtitleNodeId(subNodeId);
                                 }}
-                                onSave={(next) => updateProject(projectId, { timeline: next })}
+                                onSave={(next) => persistCanvasTimeline(projectId, next)}
                                 onSaveSubtitles={(subNodeId, entries) =>
                                     handleConfigNodeChange(subNodeId, {
                                         subtitleEntries: entries,

@@ -192,15 +192,31 @@ func OfficialPluginPackageDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	executable := ""
+	if path, executableErr := os.Executable(); executableErr == nil {
+		executable = path
+	}
+	return resolveOfficialPluginPackageDir(OfficialPluginPackageCandidates(executable, workingDir))
+}
+
+// OfficialPluginPackageCandidates lists locations that may contain shipped
+// *.beeftv-plugin archives. Production launches must not depend on the
+// caller's working directory: Windows/Linux Wails output keeps packages next
+// to the executable, and macOS .app bundles keep them in Contents/Resources.
+func OfficialPluginPackageCandidates(executablePath, workingDir string) []string {
 	candidates := []string{"/app/plugin-packages"}
-	if executable, executableErr := os.Executable(); executableErr == nil {
-		// Production Wails bundles official plugins next to the executable in
-		// Contents/Resources so Finder launches do not depend on cwd.
-		executableDir := filepath.Dir(executable)
-		candidates = append(candidates, filepath.Join(executableDir, "..", "Resources", "plugin-packages"))
+	if strings.TrimSpace(executablePath) != "" {
+		executableDir := filepath.Dir(executablePath)
+		candidates = append(candidates,
+			filepath.Join(executableDir, "plugin-packages"),
+			filepath.Join(executableDir, "..", "Resources", "plugin-packages"),
+		)
 	}
 	current := workingDir
 	for range 8 {
+		if current == "" {
+			break
+		}
 		candidates = append(candidates, filepath.Join(current, "plugin-packages"))
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -208,12 +224,16 @@ func OfficialPluginPackageDir() (string, error) {
 		}
 		current = parent
 	}
+	return candidates
+}
+
+func resolveOfficialPluginPackageDir(candidates []string) (string, error) {
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("未找到官方插件目录 plugin-packages")
+	return "", fmt.Errorf("未找到官方插件目录 plugin-packages；请设置 CANVAS_OFFICIAL_PLUGIN_DIR")
 }
 
 // 兼容包内未导出旧名（service 薄包装与未改调用点）。

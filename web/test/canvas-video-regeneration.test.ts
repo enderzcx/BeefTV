@@ -90,6 +90,22 @@ describe("listVideoReferenceModels", () => {
         config.channels[0].apiKey = "";
         expect(listVideoReferenceModels(config)).toEqual([]);
     });
+
+    test("connected BeefAPI with empty key stays selectable", () => {
+        const config = supportedVideoConfig();
+        config.channels[0] = {
+            ...config.channels[0],
+            id: "beefapi",
+            pinned: true,
+            apiKey: "",
+            credentialRef: "beefapi-enterprise",
+            hasApiKey: true,
+            models: ["seedance-1.0-pro"],
+        };
+        config.model = "beefapi::seedance-1.0-pro";
+        config.videoModel = "beefapi::seedance-1.0-pro";
+        expect(listVideoReferenceModels(config)).toEqual(["beefapi::seedance-1.0-pro"]);
+    });
 });
 
 describe("videoReferenceSegmentError", () => {

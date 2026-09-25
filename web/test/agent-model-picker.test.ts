@@ -25,3 +25,12 @@ test("Agent 对话和设置复用创作页模型选择器，并且只展示文�
     expect(twoPane).toContain("align-items: start");
     expect(twoPane).not.toContain("min-height: 300px");
 });
+
+test("模型选择器无障碍名称跟随当前显示的模型，而不是占位文案", async () => {
+    const picker = await Bun.file(new URL("../src/components/model-picker.tsx", import.meta.url)).text();
+    expect(picker).toContain("const triggerLabel = current");
+    expect(picker).toContain("aria-label={triggerLabel}");
+    expect(picker).toContain("{triggerLabel}");
+    const prompt = await Bun.file(new URL("../src/components/canvas/canvas-node-prompt-panel.tsx", import.meta.url)).text();
+    expect(prompt).toContain("placeholder={localOnly ? localModelPlaceholder(mode) : undefined}");
+});

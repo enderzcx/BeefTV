@@ -65,13 +65,15 @@ function nodeMode(type: CanvasNodeTypeId): "text" | "image" | "video" | "audio" 
 function localResultJson(node: CanvasProject["nodes"][number], mode: ReturnType<typeof nodeMode>) {
     const content = node.metadata?.content;
     if (typeof content !== "string" || !content || mode === "text") return undefined;
+    const storageKey = typeof node.metadata?.storageKey === "string" ? node.metadata.storageKey : undefined;
+    const bytes = node.metadata?.bytes;
     if (mode === "image") {
-        return JSON.stringify({ mode, images: [{ dataUrl: content, width: node.metadata?.naturalWidth || node.width, height: node.metadata?.naturalHeight || node.height, mimeType: node.metadata?.mimeType || "image/png" }] });
+        return JSON.stringify({ mode, images: [{ dataUrl: content, url: content, storageKey, width: node.metadata?.naturalWidth || node.width, height: node.metadata?.naturalHeight || node.height, bytes, mimeType: node.metadata?.mimeType || "image/png" }] });
     }
     if (mode === "video") {
-        return JSON.stringify({ mode, video: { dataUrl: content, previewUrl: node.metadata?.previewContent, width: node.metadata?.naturalWidth || node.width, height: node.metadata?.naturalHeight || node.height, durationMs: node.metadata?.durationMs, mimeType: node.metadata?.mimeType || "video/mp4" } });
+        return JSON.stringify({ mode, video: { dataUrl: content, url: content, storageKey, previewUrl: node.metadata?.previewContent || node.metadata?.videoPreview?.content, width: node.metadata?.naturalWidth || node.width, height: node.metadata?.naturalHeight || node.height, durationMs: node.metadata?.durationMs, bytes, mimeType: node.metadata?.mimeType || "video/mp4" } });
     }
-    return JSON.stringify({ mode, audio: { dataUrl: content, durationMs: node.metadata?.durationMs, mimeType: node.metadata?.mimeType || "audio/mpeg", format: node.metadata?.audioFormat } });
+    return JSON.stringify({ mode, audio: { dataUrl: content, url: content, storageKey, durationMs: node.metadata?.durationMs, bytes, mimeType: node.metadata?.mimeType || "audio/mpeg", format: node.metadata?.audioFormat } });
 }
 
 function localPreviewUrl(value: unknown): string | undefined {

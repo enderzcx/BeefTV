@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -21,8 +22,11 @@ type DesktopRuntimeConfig struct {
 }
 
 type DesktopApp struct {
-	mu      sync.RWMutex
-	dataDir string
+	mu             sync.RWMutex
+	dataDir        string
+	wailsCtx       context.Context
+	chooseSavePath func(ctx context.Context, fileName string) (string, error)
+	copyOwnedMedia func(resourceID, destPath string) error
 }
 
 // Wails reflects every field type reachable from a bound object. Keeping the
@@ -104,7 +108,82 @@ func (a *DesktopApp) RuntimeConfig() DesktopRuntimeConfig {
 	return DesktopRuntimeConfig{BaseURL: runtime.BaseURL(), LaunchToken: runtime.LaunchToken()}
 }
 
+func (a *DesktopApp) SaveOwnedMedia(fileName string, resourceID string) (bool, error) {
+	return a.saveToChosenPath(fileName, func(path string) error {
+		return a.copyMedia(resourceID, path)
+	})
+}
+
+func (a *DesktopApp) SaveOwnedArtifact(fileName string, data []byte) (bool, error) {
+	return a.saveToChosenPath(fileName, func(path string) error {
+		return bootstrap.WriteOwnedArtifact(path, data)
+	})
+}
+
+func (a *DesktopApp) saveToChosenPath(fileName string, write func(path string) error) (bool, error) {
+	ctx, err := a.dialogContext()
+	if err != nil {
+		return false, err
+	}
+	path, err := a.promptSavePath(ctx, bootstrap.SanitizeSaveFileName(fileName))
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, errors.New("应用已关闭，无法保存文件")
+	}
+	if err := write(path); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (a *DesktopApp) dialogContext() (context.Context, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.wailsCtx == nil {
+		return nil, errors.New("应用尚未就绪，无法保存文件")
+	}
+	if err := a.wailsCtx.Err(); err != nil {
+		return nil, errors.New("应用已关闭，无法保存文件")
+	}
+	return a.wailsCtx, nil
+}
+
+func (a *DesktopApp) promptSavePath(ctx context.Context, fileName string) (string, error) {
+	a.mu.RLock()
+	choose := a.chooseSavePath
+	a.mu.RUnlock()
+	if choose != nil {
+		return choose(ctx, fileName)
+	}
+	return wailsruntime.SaveFileDialog(ctx, wailsruntime.SaveDialogOptions{
+		DefaultFilename: fileName,
+		Title:           "保存文件",
+	})
+}
+
+func (a *DesktopApp) copyMedia(resourceID, destPath string) error {
+	a.mu.RLock()
+	copyFn := a.copyOwnedMedia
+	a.mu.RUnlock()
+	if copyFn != nil {
+		return copyFn(resourceID, destPath)
+	}
+	runtime := a.runtime()
+	if runtime == nil {
+		return errors.New("本地后端尚未就绪")
+	}
+	return runtime.CopyOwnedResourceTo(resourceID, destPath)
+}
+
 func (a *DesktopApp) startup(ctx context.Context) {
+	a.mu.Lock()
+	a.wailsCtx = ctx
+	a.mu.Unlock()
 	if err := a.start(ctx); err != nil {
 		log.Printf("启动本地后端失败: %v", err)
 		wailsruntime.LogErrorf(ctx, "启动本地后端失败: %v", err)
@@ -113,6 +192,9 @@ func (a *DesktopApp) startup(ctx context.Context) {
 }
 
 func (a *DesktopApp) shutdown(_ context.Context) {
+	a.mu.Lock()
+	a.wailsCtx = nil
+	a.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := a.stop(ctx); err != nil {

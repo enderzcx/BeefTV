@@ -48,6 +48,8 @@ export function CanvasVideoInlineTrimOverlay({ node, viewport, containerRef, dra
             panelHeight={104}
             allowOverflow
             keepBelowNode
+            avoidBottomDock
+            className="canvas-video-trim-overlay"
             dragOffset={dragOffset}
             isDragging={isDragging}
         >

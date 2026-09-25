@@ -3,6 +3,7 @@ import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store"
 import { http } from "@/services/api/request";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 type LocalCanvasContent = Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId">>;
 type CanvasSaveSummary = Pick<CanvasProject, "id" | "title" | "createdAt" | "updatedAt" | "revision">;
@@ -128,11 +129,96 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
         if (backendSaveTails.get(id) === tail) backendSaveTails.delete(id);
     });
     backendSaveTails.set(id, tail);
-    return next;
+    return tail;
 }
 
 export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id, false);
+}
+
+type CanvasDocumentPersistPatch = Partial<Pick<CanvasProject, "nodes" | "connections" | "timeline">>;
+
+function sameDocumentValue(left: unknown, right: unknown) {
+    return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
+function revertUnchangedCanvasNodes(
+    previous: CanvasProject["nodes"],
+    attempted: CanvasProject["nodes"],
+    live: CanvasProject["nodes"],
+): CanvasProject["nodes"] {
+    if (sameDocumentValue(live, attempted)) return previous;
+    const previousById = new Map(previous.map((node) => [node.id, node]));
+    const attemptedById = new Map(attempted.map((node) => [node.id, node]));
+    const reverted: CanvasProject["nodes"] = [];
+    for (const node of live) {
+        const before = previousById.get(node.id);
+        const optimistic = attemptedById.get(node.id);
+        if (!before && optimistic) {
+            if (sameDocumentValue(node, optimistic)) continue;
+            reverted.push(node);
+            continue;
+        }
+        if (before && optimistic) {
+            reverted.push(sameDocumentValue(node, optimistic) ? before : node);
+            continue;
+        }
+        reverted.push(node);
+    }
+    return reverted;
+}
+
+function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: CanvasProject, patch: CanvasDocumentPersistPatch): CanvasProject {
+    const next: CanvasProject = { ...current };
+    (Object.keys(patch) as Array<keyof CanvasDocumentPersistPatch>).forEach((key) => {
+        if (key === "nodes") {
+            if (!patch.nodes) return;
+            next.nodes = revertUnchangedCanvasNodes(previous.nodes, patch.nodes, current.nodes);
+            return;
+        }
+        const attempted = patch[key];
+        if (attempted === undefined) return;
+        if (sameDocumentValue(current[key], attempted)) {
+            (next as Record<string, unknown>)[key] = previous[key];
+        }
+    });
+    return next;
+}
+
+/**
+ * Persist a canvas document patch before the caller reports success.
+ * Local desktop hydrates from SQLite, so that profile PUTs the Go repository
+ * without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
+ * A failed write only reverts patch fields that nobody else changed.
+ */
+export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
+    const previous = useCanvasStore.getState().openProject(id);
+    useCanvasStore.getState().updateProject(id, patch);
+    const attempted = useCanvasStore.getState().openProject(id);
+    try {
+        if (isLocalWorkspaceMode()) {
+            await syncLocalCanvasProjectToBackend(id);
+            return;
+        }
+        await flushCanvasStorePersistence();
+    } catch (error) {
+        if (previous) {
+            useCanvasStore.setState((state) => ({
+                projects: state.projects.map((item) => {
+                    if (item.id !== id) return item;
+                    const reverted = revertUnchangedCanvasDocumentPatch(item, previous, patch);
+                    if (attempted && item.updatedAt === attempted.updatedAt) reverted.updatedAt = previous.updatedAt;
+                    return reverted;
+                }),
+            }));
+        }
+        throw error;
+    }
+}
+
+/** Timeline edits live on the canvas document. */
+export async function persistCanvasTimeline(id: string, timeline: NonNullable<CanvasProject["timeline"]>) {
+    await persistCanvasDocument(id, { timeline });
 }
 
 export function syncLocalCanvasGenerationProjectToBackend(id: string): Promise<void> {

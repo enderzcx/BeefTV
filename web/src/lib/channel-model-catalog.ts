@@ -61,13 +61,77 @@ export function sanitizeChannelModelCatalogItem(value: unknown): ChannelModelCat
     });
 }
 
+export function catalogModelMapping(
+    item: Pick<ChannelModelCatalogItem, "id" | "modelType" | "supportedEndpointTypes">,
+    options: { providerNameFallback?: boolean } = {},
+): {
+    capability?: ChannelModelProfile["capability"];
+    protocol?: ModelProtocol;
+    skipGeneration?: boolean;
+} {
+    const id = item.id.trim().toLowerCase();
+    const modelType = String(item.modelType || "")
+        .trim()
+        .toLowerCase();
+    const endpoints = (item.supportedEndpointTypes || []).map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (endpoints.some((endpoint) => endpoint === "audio.transcriptions" || endpoint === "audio-transcriptions" || endpoint === "transcriptions")) {
+        return { skipGeneration: true };
+    }
+    if (options.providerNameFallback && catalogIsTranscriptionName(id) && (!modelType || modelType === "audio")) {
+        return { skipGeneration: true };
+    }
+    if (endpoints.some((endpoint) => endpoint === "audio.speech" || endpoint === "audio-speech")) {
+        return { capability: "audio", protocol: "openai-audio" };
+    }
+    if (modelType === "audio") return { capability: "audio", protocol: "openai-audio" };
+    if (options.providerNameFallback && !modelType && catalogIsSpeechOrMusic(id)) {
+        return { capability: "audio", protocol: "openai-audio" };
+    }
+    return {};
+}
+
+function catalogNameTokens(id: string) {
+    return id
+        .trim()
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .filter(Boolean);
+}
+
+function catalogHasNameToken(id: string, tokens: string[]) {
+    const parts = new Set(catalogNameTokens(id));
+    return tokens.some((token) => parts.has(token));
+}
+
+function catalogIsTranscriptionName(id: string) {
+    return catalogHasNameToken(id, ["asr", "stt", "whisper", "transcription", "transcriptions", "transcribe"]);
+}
+
+function catalogIsSpeechOrMusic(id: string) {
+    if (catalogIsTranscriptionName(id)) return false;
+    return catalogHasNameToken(id, ["speech", "tts", "music"]);
+}
+
+function isBeefAPICatalogChannel(channel: ModelChannel) {
+    if (channel.id === "beefapi" || channel.credentialRef === "beefapi-enterprise") return true;
+    try {
+        return new URL(channel.baseUrl || "").hostname.toLowerCase() === "enterprise.beefapi.com";
+    } catch {
+        return false;
+    }
+}
+
 export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog: ChannelModelCatalogItem[]): ChannelModelProfile[] {
     const existingByModel = new Map((channel.modelProfiles || []).map((profile) => [profile.model, profile]));
     const next: ChannelModelProfile[] = [];
     for (const item of catalog) {
         const existing = existingByModel.get(item.id);
-        const inferredProtocol = protocolForModelCatalog(item.supportedEndpointTypes);
-        const inferredCapability = modelProtocolCapability(inferredProtocol) || item.modelType;
+        const mapped = catalogModelMapping(item, { providerNameFallback: isBeefAPICatalogChannel(channel) });
+        const inferredProtocol = mapped.protocol || protocolForModelCatalog(item.supportedEndpointTypes);
+        const inferredCapability = mapped.capability || modelProtocolCapability(inferredProtocol) || item.modelType;
+        if (mapped.skipGeneration) {
+            continue;
+        }
         if (existing) {
             const protocol = inferredProtocol || existing.protocol;
             const capability = inferredCapability || existing.capability;
@@ -82,7 +146,7 @@ export function mergeFetchedChannelModelProfiles(channel: ModelChannel, catalog:
                 ...existing,
                 ...(item.displayName ? { displayName: item.displayName } : {}),
                 capability,
-                ...(inferredProtocol ? { protocol: inferredProtocol } : {}),
+                ...(protocol ? { protocol } : {}),
                 ...(patchCapabilityConfig || capabilityChanged ? { capabilityConfig } : {}),
             });
             continue;

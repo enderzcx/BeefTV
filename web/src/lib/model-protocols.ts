@@ -1,3 +1,5 @@
+import type { ModelChannel } from "@/stores/use-config-store";
+
 export type ModelProtocol = string;
 export type ProtocolCapability = "text" | "image" | "video" | "audio";
 export type ModelProtocolWorkflow = { id: string; label: string; providerId: string; capability: ProtocolCapability; parameters: Array<{ name: string; type: string; required?: boolean; description?: string; values?: string[]; mapping?: string }>; defaults?: Record<string, string | number | boolean> };
@@ -22,3 +24,97 @@ export function protocolForModelCatalog(_endpointTypes: string[] = []): ModelPro
 }
 export function modelProtocolSummary(value: string | undefined, definitions: ModelProtocolDefinition[] = []) { const protocol = modelProtocolDefinition(value, definitions); return protocol ? [protocol.create, protocol.contentType, protocol.poll, protocol.media].filter(Boolean).join(" · ") : "当前协议未安装或尚未选择。"; }
 export function normalizeModelProtocol(value: unknown): ModelProtocol | undefined { return typeof value === "string" && value.trim() ? value.trim() : undefined; }
+
+const STANDARD_PROTOCOLS: Record<ProtocolCapability, ModelProtocol[]> = {
+    text: ["chat-completion", "openai-response"],
+    image: ["openai-image"],
+    video: ["newapi-channel-2", "newapi"],
+    audio: ["openai-audio"],
+};
+
+const FALLBACK_PROTOCOLS: Record<ProtocolCapability, ModelProtocol> = {
+    text: "chat-completion",
+    image: "openai-image",
+    video: "newapi-channel-2",
+    audio: "openai-audio",
+};
+
+export function inferProtocolCapabilityFromModel(model: string): ProtocolCapability {
+    const lower = model.toLowerCase();
+    if (
+        lower.includes("audio") ||
+        lower.includes("tts") ||
+        lower.includes("voice") ||
+        lower.includes("speech") ||
+        lower.includes("sound") ||
+        lower.includes("music")
+    ) {
+        return "audio";
+    }
+    if (
+        lower.includes("seedream") ||
+        lower.includes("gpt-image") ||
+        lower.includes("image") ||
+        lower.includes("dall-e") ||
+        lower.includes("dalle") ||
+        lower.includes("flux") ||
+        lower.includes("imagen") ||
+        lower.includes("banana") ||
+        lower.includes("midjourney") ||
+        lower.includes("sdxl") ||
+        lower.includes("stable-diffusion")
+    ) {
+        return "image";
+    }
+    if (
+        lower.includes("video") ||
+        lower.includes("sora") ||
+        lower.includes("veo") ||
+        lower.includes("kling") ||
+        lower.includes("seedance") ||
+        lower.includes("minimax-video") ||
+        lower.includes("hailuo") ||
+        lower.includes("pika") ||
+        lower.includes("runway") ||
+        lower.includes("omni") ||
+        lower.includes("cogvideo") ||
+        lower.includes("wan")
+    ) {
+        return "video";
+    }
+    return "text";
+}
+
+export function defaultProtocolForCapability(capability: ProtocolCapability, availableProtocols: ModelProtocolDefinition[] = []): ModelProtocol {
+    for (const id of STANDARD_PROTOCOLS[capability] || []) {
+        if (!availableProtocols.length || availableProtocols.some((item) => item.value === id && item.enabled !== false)) return id;
+    }
+    const matched = availableProtocols.find((item) => item.capability === capability && item.enabled !== false);
+    return matched?.value || FALLBACK_PROTOCOLS[capability] || "chat-completion";
+}
+
+export function defaultProtocolForModel(model: string, availableProtocols: ModelProtocolDefinition[] = []): ModelProtocol {
+    return defaultProtocolForCapability(inferProtocolCapabilityFromModel(model), availableProtocols);
+}
+
+export function usesOpenAICompatibleProtocolDefault(apiFormat?: string) {
+    return apiFormat !== "gemini" && apiFormat !== "claude";
+}
+
+type ChannelModelProfile = NonNullable<ModelChannel["modelProfiles"]>[number];
+
+export function ensureModelProfilesWithUiDefaults(
+    models: string[],
+    profiles: Array<Omit<ChannelModelProfile, "capability"> & { capability?: ProtocolCapability }> | undefined,
+    availableProtocols: ModelProtocolDefinition[] = [],
+    apiFormat?: string,
+): ChannelModelProfile[] {
+    const byModel = new Map((profiles || []).filter((item) => models.includes(item.model)).map((item) => [item.model, item]));
+    return models.map((model) => {
+        const current = byModel.get(model);
+        if (current?.protocol && current.capability) return { ...current, capability: current.capability, protocol: current.protocol };
+        const capability = current?.capability || modelProtocolCapability(current?.protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
+        const protocol = current?.protocol || (usesOpenAICompatibleProtocolDefault(apiFormat) ? defaultProtocolForCapability(capability, availableProtocols) : undefined);
+        return { ...current, model, capability, protocol };
+    });
+}

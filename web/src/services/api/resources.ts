@@ -93,6 +93,40 @@ export function isResourceUrl(url?: string) {
     return path.startsWith(`${base}/resources/`) && path.endsWith("/file");
 }
 
+const RESOURCE_FILE_PATH = /\/(?:api\/)?resources\/([^/]+)\/file$/;
+
+export function ownedResourceIdFromMediaRef(storageKey?: string, url?: string) {
+    const fromKey = resourceIdFromStorageKey(storageKey);
+    if (fromKey) return fromKey;
+    if (!url?.trim()) return "";
+    if (isResourceUrl(url)) return resourceIdFromResourceFilePath(url.split(/[?#]/, 1)[0] || "");
+    return resourceIdFromTrustedLocalFileUrl(url);
+}
+
+function resourceIdFromResourceFilePath(path: string) {
+    const match = path.match(RESOURCE_FILE_PATH);
+    if (!match) return "";
+    try {
+        return decodeURIComponent(match[1]);
+    } catch {
+        return "";
+    }
+}
+
+function resourceIdFromTrustedLocalFileUrl(url: string) {
+    try {
+        const parsed = new URL(url, "http://127.0.0.1");
+        if (parsed.protocol === "wails:") return resourceIdFromResourceFilePath(parsed.pathname);
+        if ((parsed.protocol === "http:" || parsed.protocol === "https:") && (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")) {
+            return resourceIdFromResourceFilePath(parsed.pathname);
+        }
+        if (url.startsWith("/")) return resourceIdFromResourceFilePath(parsed.pathname);
+        return "";
+    } catch {
+        return "";
+    }
+}
+
 // 超过该阈值（与后端单请求 multipart 上限 50MB 一致）的本地媒体走分片上传，避免大视频导入失败。
 const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;

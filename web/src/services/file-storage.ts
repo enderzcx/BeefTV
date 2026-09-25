@@ -104,7 +104,17 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
                 // 缓存只影响后续读取性能，服务端资源已经成功落盘，不得把缓存失败误报为上传失败。
                 console.warn("预热媒体缓存失败，服务端资源已保存", { resourceId: resource.id, error });
             }
-            return { url: resource.publicUrl || resourceFileUrl(resource.id), storageKey: resourceStorageKey(resource.id), bytes: resource.size || blob.size, mimeType: resource.mimeType || blob.type || "application/octet-stream", width: resource.width || meta.width, height: resource.height || meta.height, durationMs: resource.durationMs || meta.durationMs, hasAudio: meta.hasAudio, preview: poster };
+            return {
+                url: resource.publicUrl || resourceFileUrl(resource.id),
+                storageKey: resourceStorageKey(resource.id),
+                bytes: resource.size || blob.size,
+                mimeType: resource.mimeType || blob.type || "application/octet-stream",
+                width: resource.width || meta.width,
+                height: resource.height || meta.height,
+                durationMs: resource.durationMs || meta.durationMs,
+                hasAudio: meta.hasAudio,
+                preview: poster,
+            };
         } catch (error) {
             // 与图片上传同一套判定：永久性失败必须当场暴露，不能混进“稍后自动同步”。
             if (error instanceof ResourceUploadError && error.permanent) throw error;
@@ -114,7 +124,16 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
         // 本地资源服务暂时不可用时退回浏览器本地缓存，保持当前编辑可用。
         await saveLocalMedia(storageKey, blob, previewUrl);
         retainPreviewUrl = true;
-        return { url: previewUrl, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta, preview: poster, pendingRemoteUpload: localRuntime ? undefined : true, remoteUploadError: localRuntime ? undefined : remoteUploadError };
+        return {
+            url: previewUrl,
+            storageKey,
+            bytes: blob.size,
+            mimeType: blob.type || "application/octet-stream",
+            ...meta,
+            preview: poster,
+            pendingRemoteUpload: localRuntime ? undefined : true,
+            remoteUploadError: localRuntime ? undefined : remoteUploadError,
+        };
     } finally {
         // 只有本地降级结果需要把 objectURL 留给页面；成功上传和所有异常路径都及时释放。
         if (!retainPreviewUrl) URL.revokeObjectURL(previewUrl);
@@ -158,11 +177,25 @@ async function materializeExternalMedia(url: string) {
     if (existing) return existing;
     const pending = (async () => {
         const config = useConfigStore.getState().config;
-        const channel = config.channels.find((item) => {
-            try { return new URL(item.baseUrl).hostname === new URL(url).hostname && item.apiKey?.trim(); } catch { return false; }
-        }) || config.channels.find((item) => /beefapi/i.test(`${item.id} ${item.name} ${item.baseUrl}`) && item.apiKey?.trim());
-        if (!channel?.apiKey) return url;
-        const blob = await createChannelTransport({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat, headers: channel.headers }, "video").getExternalBlob(url);
+        const channel =
+            config.channels.find((item) => {
+                try {
+                    return new URL(item.baseUrl).hostname === new URL(url).hostname;
+                } catch {
+                    return false;
+                }
+            }) || config.channels.find((item) => /beefapi/i.test(`${item.id} ${item.name} ${item.baseUrl}`));
+        if (!channel) return url;
+        const blob = await createChannelTransport(
+            {
+                baseUrl: channel.baseUrl,
+                apiKey: channel.credentialRef ? "" : channel.apiKey,
+                apiFormat: channel.apiFormat,
+                headers: channel.headers,
+                credentialRef: channel.credentialRef || (channel.id === "beefapi" ? "beefapi-enterprise" : undefined),
+            },
+            "video",
+        ).getBlob(url);
         const key = `external-video:${getActiveUserScope()}:${nanoid()}`;
         if (usesBrowserLocalResourceStore()) {
             const objectUrl = URL.createObjectURL(blob);
@@ -175,7 +208,11 @@ async function materializeExternalMedia(url: string) {
         return (await getCachedResourceObjectUrl(storageKey).catch(() => "")) || resourceFileUrl(resource.id);
     })();
     externalMediaInflight.set(url, pending);
-    try { return await pending; } finally { externalMediaInflight.delete(url); }
+    try {
+        return await pending;
+    } finally {
+        externalMediaInflight.delete(url);
+    }
 }
 
 export async function getMediaBlob(storageKey: string) {

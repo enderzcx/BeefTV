@@ -171,8 +171,8 @@ export function useCanvasVersionHistory(projectId: string, onRestore: (snapshotI
         setExporting(true);
         try {
             // Drawing strokes are not versioned; never mix today's local strokes into an old snapshot.
-            await exportCanvasProjects([preview.project], `${preview.project.title}-${preview.label}`, { includeLocalDrawings: false });
-            message.success("已下载，可从画布列表导入为新画布");
+            const result = await exportCanvasProjects([preview.project], `${preview.project.title}-${preview.label}`, { includeLocalDrawings: false });
+            if (result === "saved") message.success("已下载，可从画布列表导入为新画布");
         } catch (cause) {
             message.error(cause instanceof Error ? cause.message : "下载失败，请重试");
         } finally {

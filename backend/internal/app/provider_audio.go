@@ -30,9 +30,11 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	body := map[string]interface{}{
 		"model":           input.Config.Model,
 		"input":           input.Prompt,
-		"voice":           defaultString(input.Config.AudioVoice, "alloy"),
 		"response_format": format,
 		"speed":           1,
+	}
+	if voice := resolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice); voice != "" {
+		body["voice"] = voice
 	}
 	if input.Config.AudioSpeed != "" {
 		body["speed"] = parseFloat(input.Config.AudioSpeed, 1)
@@ -238,6 +240,36 @@ func audioSignatureMatches(mimeType string, data []byte) bool {
 		return bytes.HasPrefix(data, []byte("ADIF")) || (len(data) >= 2 && data[0] == 0xff && data[1]&0xf0 == 0xf0)
 	}
 	return false
+}
+
+func resolvedAudioSpeechVoice(model, voice string) string {
+	id := strings.ToLower(strings.TrimSpace(model))
+	if index := strings.LastIndex(id, "::"); index >= 0 {
+		id = id[index+2:]
+	}
+	trimmed := strings.TrimSpace(voice)
+	if strings.Contains(id, "minimax-music") {
+		return ""
+	}
+	if strings.Contains(id, "minimax-speech") {
+		if trimmed == "" || isOpenAISpeechVoice(trimmed) || trimmed == "中文" {
+			return "male-qn-qingse"
+		}
+		return trimmed
+	}
+	if trimmed == "" {
+		return "alloy"
+	}
+	return trimmed
+}
+
+func isOpenAISpeechVoice(voice string) bool {
+	switch strings.ToLower(strings.TrimSpace(voice)) {
+	case "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar":
+		return true
+	default:
+		return false
+	}
 }
 
 func audioFormatMimeType(format string) string {

@@ -19,6 +19,7 @@ import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
+import { reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { normalizeLocalCanvasProject } from "@/lib/local-workspace-migration";
 import { saveCanvasDrawing, type CanvasDrawingRenderDraft } from "@/lib/canvas/canvas-drawing-storage";
 import { hasRemoteUserDataSyncSession, loadCanvasProjectForEditing, saveRemoteUserDataNow, scheduleRemoteUserDataSync } from "@/services/local-workspace-sync";
@@ -238,7 +239,7 @@ export default function CanvasPage() {
                 if (!project) throw new Error("画布不存在，无法导出");
                 selected.push(project);
             }
-            await exportCanvasProjects(selected, `${brandName}画布-${selected.length}个画布`, { folders });
+            await reportOwnedMediaSave(message, exportCanvasProjects(selected, `${brandName}画布-${selected.length}个画布`, { folders }));
         } catch (error) { message.error(error instanceof Error ? error.message : "导出失败"); }
     };
     const importCanvas = async (file?: File) => {

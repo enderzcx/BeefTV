@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import { scopedLocalStorage } from "@/lib/user-scope";
-import { modelProtocolCapability, normalizeModelProtocol, type ModelProtocol } from "@/lib/model-protocols";
+import { defaultProtocolForCapability, defaultProtocolForModel, modelProtocolCapability, normalizeModelProtocol, usesOpenAICompatibleProtocolDefault, type ModelProtocol } from "@/lib/model-protocols";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { defaultModelCapabilityConfig, workflowFieldRole, workflowFieldSafeToOverride, workflowVideoFieldsFromJson, type ModelCapabilityConfig } from "@/lib/model-capabilities";
 import { useUserStore } from "@/stores/use-user-store";
@@ -359,8 +359,9 @@ export type ModelChannel = {
     modelAliases?: Record<string, string>;
     scope?: "system" | "user";
     enabled?: boolean;
-	pinned?: boolean;
-	presetVersion?: number;
+    pinned?: boolean;
+    presetVersion?: number;
+    credentialRef?: string;
     hasApiKey?: boolean;
     hasSecretKey?: boolean;
     concurrencyLimit?: number;
@@ -527,13 +528,24 @@ function isImageModelName(model: string) {
     );
 }
 
+function isTranscriptionModelName(model: string) {
+    const parts = new Set(
+        modelOptionName(model)
+            .toLowerCase()
+            .split(/[^a-z0-9]+/u)
+            .filter(Boolean),
+    );
+    return ["asr", "stt", "whisper", "transcription", "transcriptions", "transcribe"].some((token) => parts.has(token));
+}
+
 function isAudioModelName(model: string) {
+    if (isTranscriptionModelName(model)) return false;
     const value = modelOptionName(model).toLowerCase();
     return value.includes("audio") || value.includes("tts") || value.includes("speech") || value.includes("voice") || value.includes("music") || value.includes("sound");
 }
 
 function isTextModelName(model: string) {
-    return !isImageModelName(model) && !isVideoModelName(model) && !isAudioModelName(model);
+    return !isImageModelName(model) && !isVideoModelName(model) && !isAudioModelName(model) && !isTranscriptionModelName(model);
 }
 
 export function modelMatchesCapability(model: string, capability?: ModelCapability) {
@@ -580,13 +592,28 @@ export function configuredModelMatchesCapability(config: AiConfig, model: string
     return selectableModelsByCapability(config, capability).includes(normalized);
 }
 
+export const MANAGED_BEEFAPI_CREDENTIAL_REF = "beefapi-enterprise";
+
+export function isBuiltinBeefAPIChannel(channel: Pick<ModelChannel, "id" | "pinned">) {
+    return channel.id === "beefapi" && channel.pinned === true;
+}
+
+export function channelHasManagedBeefAPICredential(channel: Pick<ModelChannel, "id" | "pinned" | "credentialRef" | "hasApiKey">) {
+    if (!isBuiltinBeefAPIChannel(channel)) return false;
+    return channel.credentialRef === MANAGED_BEEFAPI_CREDENTIAL_REF || channel.hasApiKey === true;
+}
+
+export function channelHasGenerationCredential(channel: Pick<ModelChannel, "id" | "pinned" | "credentialRef" | "hasApiKey" | "apiKey">) {
+    return channelHasManagedBeefAPICredential(channel) || Boolean(channel.apiKey?.trim());
+}
+
 function isAiConfigReady(config: AiConfig, model: string) {
     if (config.taskWorkflowProvider === "runninghub") {
         const key = config.runningHub.apiKey;
         return Boolean(config.runningHub.enabled && config.runningHub.baseUrl.trim() && key.trim() && config.runningHub.workflowId.trim());
     }
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && channel.baseUrl.trim() && channelHasGenerationCredential(channel));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -749,9 +776,9 @@ function beefApiSeedanceCapabilityConfig(model: string): ModelCapabilityConfig |
 }
 
 function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
-	if (!channel.baseUrl.toLowerCase().includes("enterprise.beefapi.com")) return channel;
-	const models = channel.models;
-	const existing = new Map((channel.modelProfiles || []).map((item) => [item.model, item]));
+    if (!channel.baseUrl.toLowerCase().includes("enterprise.beefapi.com")) return channel;
+    const models = channel.models;
+    const existing = new Map((channel.modelProfiles || []).map((item) => [item.model, item]));
     for (const model of models.filter(isImageModelName)) {
         const current = existing.get(model);
         existing.set(model, {
@@ -762,18 +789,34 @@ function enrichBeefApiMediaChannel(channel: ModelChannel): ModelChannel {
             capabilityConfig: current?.capabilityConfig || defaultModelCapabilityConfig("openai-image", model),
         });
     }
-	for (const model of models.filter(isTextModelName)) {
-		const current = existing.get(model);
-		if (current?.capability && current.capability !== "text") continue;
-		if (current?.protocol && modelProtocolCapability(current.protocol) !== "text") continue;
-		existing.set(model, {
-			...(current || {}),
-			model,
-			capability: "text",
-			protocol: current?.protocol || "chat-completion",
-		});
-	}
-	for (const model of models.filter(isVideoModelName)) {
+    for (const model of models.filter(isTextModelName)) {
+        const current = existing.get(model);
+        if (current?.capability && current.capability !== "text") continue;
+        if (current?.protocol && modelProtocolCapability(current.protocol) !== "text") continue;
+        existing.set(model, {
+            ...(current || {}),
+            model,
+            capability: "text",
+            protocol: current?.protocol || "chat-completion",
+        });
+    }
+    for (const model of models.filter(isAudioModelName)) {
+        const current = existing.get(model);
+        if (current?.capability && current.capability !== "audio" && current.capability !== "text") continue;
+        existing.set(model, {
+            ...(current || {}),
+            model,
+            capability: "audio",
+            protocol: current?.protocol && current.capability === "audio" ? current.protocol : "openai-audio",
+        });
+    }
+    for (const model of models.filter(isTranscriptionModelName)) {
+        const current = existing.get(model);
+        if (!current) continue;
+        if (current.capability === "image" || current.capability === "video") continue;
+        existing.delete(model);
+    }
+    for (const model of models.filter(isVideoModelName)) {
         const current = existing.get(model);
         // Always normalize the built-in BeefAPI media models. This also
         // repairs persisted profiles created by the previous channel-1
@@ -823,8 +866,9 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         models: uniqueRawModels(channel?.models || []),
         scope: channel?.scope === "system" ? "system" : "user",
         enabled: channel?.enabled !== false,
-		pinned: channel?.pinned === true,
-		presetVersion: channel?.presetVersion,
+        pinned: channel?.pinned === true,
+        presetVersion: channel?.presetVersion,
+        credentialRef: channel?.credentialRef,
         hasApiKey: channel?.hasApiKey,
         hasSecretKey: channel?.hasSecretKey,
         modelProfiles: channel?.modelProfiles?.map((item) => ({ ...item, protocol: normalizeModelProtocol(item.protocol) })),
@@ -922,18 +966,24 @@ export function channelConnectionSignature(channel: ModelChannel) {
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
     const model = modelOptionName(value || config.model);
-    const modelProtocol = channel.modelProfiles?.find((item) => item.model === model)?.protocol;
-    const interfaceType = modelProtocol || channel.interfaceType;
+    const modelProfile = channel.modelProfiles?.find((item) => item.model === model);
+    const modelProtocol = modelProfile?.protocol;
+    const interfaceType = modelProtocol
+        || channel.interfaceType
+        || (channel.scope === "system" || !usesOpenAICompatibleProtocolDefault(channel.apiFormat)
+            ? undefined
+            : (modelProfile?.capability ? defaultProtocolForCapability(modelProfile.capability) : defaultProtocolForModel(model)));
     return {
         ...config,
         model,
         baseUrl: channel.baseUrl,
-        apiKey: channel.apiKey,
-        secretKey: channel.secretKey,
+        apiKey: channel.credentialRef ? "" : channel.apiKey,
+        secretKey: channel.credentialRef ? "" : channel.secretKey,
         headers: channel.headers,
         apiFormat: interfaceType ? (interfaceType === "gemini-veo" || interfaceType === "gemini-image" ? ("gemini" as const) : interfaceType === "claude-api" ? ("claude" as const) : ("openai" as const)) : channel.apiFormat,
         interfaceType,
         channelId: channel.scope === "system" ? channel.id : "",
+        credentialRef: channel.credentialRef || (isBuiltinBeefAPIChannel(channel) ? MANAGED_BEEFAPI_CREDENTIAL_REF : undefined),
     };
 }
 

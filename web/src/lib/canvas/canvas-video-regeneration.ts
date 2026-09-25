@@ -1,14 +1,14 @@
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import type { CanvasVideoEditOperation } from "@/types/canvas";
-import { resolveModelChannel, selectableModelsByCapability, type AiConfig } from "@/stores/use-config-store";
+import { channelHasGenerationCredential, resolveModelChannel, selectableModelsByCapability, type AiConfig } from "@/stores/use-config-store";
 
 export function listVideoReferenceModels(config: AiConfig): string[] {
     return selectableModelsByCapability(config, "video").filter((model) => {
         const profile = modelCapabilityConfigFor(config, model).video;
         if (!profile || profile.references.maxVideos < 1 || !profile.operations.length) return false;
         const channel = resolveModelChannel(config, model);
-        return Boolean(channel.baseUrl.trim() && channel.apiKey.trim());
+        return Boolean(channel.baseUrl.trim() && channelHasGenerationCredential(channel));
     });
 }
 

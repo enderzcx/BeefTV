@@ -450,7 +450,8 @@ export const CanvasNode = React.memo(function CanvasNode({
 
                 {data.type === CanvasNodeType.Text && data.metadata?.workflowKind !== "character" && !readOnly ? (
                     <div
-                        className={`absolute bottom-[10%] left-1/2 z-[var(--node-z-overlay)] -translate-x-1/2 motion-safe:transition motion-safe:duration-200 ${isSelected ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"}`}
+                        className={`canvas-node-inline-edit absolute bottom-[10%] left-1/2 z-[var(--node-z-overlay)] -translate-x-1/2 motion-safe:transition motion-safe:duration-200 ${isSelected ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"}`}
+                        aria-hidden={!isSelected}
                         onMouseDown={(event) => event.stopPropagation()}
                         onPointerDown={(event) => event.stopPropagation()}
                     >
@@ -458,6 +459,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                             type="button"
                             className="canvas-node-inline-action inline-flex h-9 items-center gap-2 px-3 text-xs font-medium backdrop-blur-xl transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                             style={{ outlineColor: theme.accent.primary }}
+                            tabIndex={isSelected ? 0 : -1}
                             onClick={(event) => { event.stopPropagation(); onOpenTextEditor?.(data); }}
                             aria-label="放大编辑文本"
                         >

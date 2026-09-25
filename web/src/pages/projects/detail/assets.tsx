@@ -16,7 +16,7 @@ import { CANVAS_FOLDER_THEME_OPTIONS, resolveCanvasFolderTheme } from "@/lib/can
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { CHARACTER_VOICE_FORMAT_LABEL, CHARACTER_VOICE_UPLOAD_ACCEPT, characterVoiceFormatName, characterVoiceTitleFromFileName, isSupportedCharacterVoiceFile } from "@/lib/character-voice-formats";
 import { ASSET_CATEGORIES, defaultAssetCategoryForKind, normalizeAssetCategory } from "@/lib/asset-category";
-import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
+import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { uploadMediaFile } from "@/services/file-storage";
 import {
     bindProjectCharacterVoice,
@@ -45,7 +45,8 @@ import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData } from "@/types/canvas";
-import { saveAs } from "file-saver";
+import { downloadOwnedOrBrowserMedia, reportOwnedMediaSave } from "@/services/desktop-media-save";
+import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 
 import { ProjectCharacterCard } from "./project-character-card";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
@@ -378,16 +379,33 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         if (personal && (personal.kind === "image" || personal.kind === "video" || personal.kind === "audio" || personal.kind === "model")) {
             const url = personal.kind === "image" ? personal.data.dataUrl : personal.data.url;
             const extension = personal.kind === "model" ? personal.data.fileName.split(".").pop() || "glb" : personal.data.mimeType.split("/")[1] || "bin";
-            saveAs(url, `${asset.title || "asset"}.${extension}`);
+            void reportOwnedMediaSave(message, downloadOwnedOrBrowserMedia({
+                fileName: sanitizeDownloadFileName(`${asset.title || "素材"}.${extension}`),
+                resourceId: ownedResourceIdFromMediaRef(personal.data.storageKey, url) || undefined,
+                browserUrl: url,
+            }));
             return;
         }
         const cover = asset.character?.representations.find((item) => item.role === "turnaround_sheet") || asset.character?.representations.find((item) => item.role === "primary") || asset.character?.representations[0];
-        if (cover) saveAs(resourceFileUrl(cover.resourceId), `${asset.title || "character"}.png`);
-        else {
-            const remoteUrl = projectAssetRemoteUrl(asset);
-            if (remoteUrl) saveAs(remoteUrl, `${asset.title || "asset"}.${projectAssetFileExtension(asset.mediaType)}`);
-            else message.warning("当前资产没有可下载的媒体文件");
+        if (cover) {
+            void reportOwnedMediaSave(message, downloadOwnedOrBrowserMedia({
+                fileName: sanitizeDownloadFileName(`${asset.title || "角色"}.png`),
+                resourceId: cover.resourceId,
+                browserUrl: resourceFileUrl(cover.resourceId),
+            }));
+            return;
         }
+        const remoteUrl = projectAssetRemoteUrl(asset);
+        const projectResourceId = ownedResourceIdFromMediaRef(asset.storageKey, remoteUrl);
+        if (projectResourceId || remoteUrl) {
+            void reportOwnedMediaSave(message, downloadOwnedOrBrowserMedia({
+                fileName: sanitizeDownloadFileName(`${asset.title || "素材"}.${projectAssetFileExtension(asset.mediaType)}`),
+                resourceId: projectResourceId || undefined,
+                browserUrl: remoteUrl,
+            }));
+            return;
+        }
+        message.warning("当前资产没有可下载的媒体文件");
     };
     return (
         <div>

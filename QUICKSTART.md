@@ -12,11 +12,21 @@ BeefTV 桌面版是无需登录的本地优先工作区。项目、画布、素�
 BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
 ```
 
-macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。首次打开后直接进入本地工作区，不需要注册或登录。
+macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。
+
+Windows amd64 必须在 Windows 本机构建（需要 PATH 中的 Go、Bun，以及编译 go-sqlite3 的 GCC）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windows-release.ps1
+```
+
+输出为 `backend\cmd\desktop\build\bin\BeefTV.exe`，官方插件在旁边的 `plugin-packages\`。前提与数据目录见 `docs/desktop-release.md`。
+
+首次打开后直接进入本地工作区，不需要注册或登录。
 
 ## 配置模型
 
-打开“模型配置”，填写需要使用的文本、图片、视频或音频渠道。API Key 保存在本地工作区配置文件中，不会写入画布、素材或任务数据。
+打开“模型配置”。内置 BeefAPI 使用「连接 BeefAPI」，在系统浏览器中完成授权后即可拉取模型。其他渠道仍填写 Base URL 和密钥。密钥保存在本地工作区，不会写入画布、素材或任务列表。
 
 模型请求可能访问外部供应商，但 BeefTV 不会把项目数据同步到 SaaS 存储。素材会先写入本地资源目录，再作为本地资源引用提交给模型渠道。
 

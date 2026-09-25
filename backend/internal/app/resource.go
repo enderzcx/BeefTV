@@ -649,8 +649,21 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 			if err == nil {
 				kind := normalizeResourceKind("", mimeType)
 				width, height := intValue(item["width"]), intValue(item["height"])
+				durationMs := int64(intValue(item["durationMs"]))
 				if kind == "image" && (width <= 0 || height <= 0) {
 					width, height = imageDimensions(data)
+				}
+				if kind == "video" {
+					probedWidth, probedHeight, probedDurationMs := probeGeneratedVideoMedia(data)
+					if width <= 0 {
+						width = probedWidth
+					}
+					if height <= 0 {
+						height = probedHeight
+					}
+					if durationMs <= 0 {
+						durationMs = probedDurationMs
+					}
 				}
 				quotaDay := ""
 				if enforceQuota {
@@ -659,7 +672,7 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 						return nil, err
 					}
 				}
-				resource, _, err := s.storeResource(userID, kind, "generated."+extensionFromMimeType(mimeType), mimeType, int64(len(data)), width, height, int64(intValue(item["durationMs"])), bytes.NewReader(data), nil, s.localResourceStorage)
+				resource, _, err := s.storeResource(userID, kind, "generated."+extensionFromMimeType(mimeType), mimeType, int64(len(data)), width, height, durationMs, bytes.NewReader(data), nil, s.localResourceStorage)
 				if err != nil {
 					if enforceQuota {
 						s.releaseUserUploadQuota(userID, quotaDay, int64(len(data)))
@@ -685,6 +698,9 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 				item["mimeType"] = resource.MimeType
 				item["width"] = resource.Width
 				item["height"] = resource.Height
+				if kind == "video" || resource.DurationMs > 0 {
+					item["durationMs"] = resource.DurationMs
+				}
 			}
 		}
 		for key, child := range item {
@@ -845,6 +861,9 @@ func resourceFileExtension(fileName string, mimeType string, kind string) string
 	cleanMimeType := strings.TrimSpace(strings.Split(mimeType, ";")[0])
 	if extensions, err := mime.ExtensionsByType(cleanMimeType); err == nil && len(extensions) > 0 {
 		return strings.ToLower(extensions[0])
+	}
+	if mapped := extensionFromMimeType(cleanMimeType); mapped != "bin" {
+		return "." + mapped
 	}
 	switch kind {
 	case "image":

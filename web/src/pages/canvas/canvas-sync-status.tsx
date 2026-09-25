@@ -51,7 +51,10 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                                 onClick={() =>
                                     void run(async () => {
                                         const project = useCanvasStore.getState().openProject(projectId);
-                                        if (project) await exportCanvasProjects([project], `${project.title}-本地草稿`);
+                                        if (project) {
+                                            const result = await exportCanvasProjects([project], `${project.title}-本地草稿`);
+                                            if (result === "cancelled") return;
+                                        }
                                     })
                                 }
                             >
@@ -121,7 +124,9 @@ export function CanvasSyncDraftMenu({ projectId }: { projectId?: string }) {
                               }
                               setExporting(true);
                               void exportCanvasProjects([draft.project], `${draft.project.title}-本地草稿`, { includeLocalDrawings: false })
-                                  .then(() => message.success("草稿已下载，可从画布列表导入为新画布"))
+                                  .then((result) => {
+                                      if (result === "saved") message.success("草稿已下载，可从画布列表导入为新画布");
+                                  })
                                   .catch(() => message.error("草稿下载失败，请重试"))
                                   .finally(() => setExporting(false));
                           },

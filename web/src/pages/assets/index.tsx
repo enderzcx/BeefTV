@@ -11,7 +11,9 @@ import { WorkspaceState } from "@/components/layout/workspace-state";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 import { Switch } from "@/components/ui/base/switch";
-import { saveAs } from "file-saver";
+import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
+import { downloadOwnedOrBrowserMedia, reportOwnedMediaSave } from "@/services/desktop-media-save";
+import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 import { cn } from "@/lib/utils";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 
@@ -518,7 +520,11 @@ export default function AssetsPage() {
         if (asset.kind !== "image" && asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "model") return;
         const url = asset.kind === "image" ? asset.data.dataUrl : asset.data.url;
         const extension = asset.kind === "model" ? asset.data.fileName.split(".").pop() || "glb" : asset.data.mimeType.split("/")[1] || "png";
-        saveAs(url, `${asset.title || "asset"}.${extension}`);
+        void reportOwnedMediaSave(message, downloadOwnedOrBrowserMedia({
+            fileName: sanitizeDownloadFileName(`${asset.title || "素材"}.${extension}`),
+            resourceId: ownedResourceIdFromMediaRef(asset.data.storageKey, url) || undefined,
+            browserUrl: url,
+        }));
     };
 
     const exportAllAssets = async () => {
@@ -526,7 +532,7 @@ export default function AssetsPage() {
             message.warning("暂无素材可导出");
             return;
         }
-        await exportAssets(validAssets);
+        await reportOwnedMediaSave(message, exportAssets(validAssets));
     };
 
     const importAssetZip = async (file?: File) => {
@@ -631,7 +637,7 @@ export default function AssetsPage() {
 
     const exportSelectedAssets = async () => {
         if (!selectedAssets.length) return;
-        await exportAssets(selectedAssets);
+        await reportOwnedMediaSave(message, exportAssets(selectedAssets));
     };
 
     const confirmBatchDelete = async () => {

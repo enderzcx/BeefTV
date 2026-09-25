@@ -40,6 +40,10 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err != nil {
 		return nil, err
 	}
+	normalizedInput, err = s.resolveManagedBeefAPISecrets(normalizedInput)
+	if err != nil {
+		return nil, err
+	}
 
 	var routed *RoutedModel
 	logicalModelID := strings.TrimSpace(req.LogicalModelID)
@@ -494,6 +498,10 @@ func taskInputUsesCustomChannel(input map[string]any) bool {
 	channelID, _ := config["channelId"].(string)
 	baseURL, _ := config["baseUrl"].(string)
 	apiKey, _ := config["apiKey"].(string)
+	credentialRef, _ := config["credentialRef"].(string)
+	if strings.EqualFold(strings.TrimSpace(credentialRef), managedBeefAPIRef) || strings.TrimSpace(channelID) == "beefapi" {
+		return strings.TrimSpace(baseURL) != "" && strings.TrimSpace(apiKey) != ""
+	}
 	if strings.TrimSpace(channelID) != "" || systemChannelIDFromBaseURL(baseURL) != "" {
 		return false
 	}

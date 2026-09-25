@@ -1,5 +1,5 @@
 import { getMediaBlob } from "@/services/file-storage";
-import { AUDIO_COPY_OUTPUT_NAME, AUDIO_OUTPUT_NAME, buildCopyAudioArgs, buildExtractAudioArgs, buildRemoveAudioArgs, buildSegmentTrimArgs, buildVideoCropArgs, CROP_OUTPUT_NAME, MUTED_VIDEO_OUTPUT_NAME, SEGMENT_INPUT_NAME, SEGMENT_OUTPUT_NAME, WAV_OUTPUT_NAME } from "./canvas-video-segment-args";
+import { AUDIO_COPY_OUTPUT_NAME, AUDIO_OUTPUT_NAME, assertUsableSegmentOutput, buildCopyAudioArgs, buildExtractAudioArgs, buildRemoveAudioArgs, buildSegmentTrimArgs, buildVideoCropArgs, CROP_OUTPUT_NAME, isFullSourceRange, MUTED_VIDEO_OUTPUT_NAME, SEGMENT_INPUT_NAME, SEGMENT_OUTPUT_NAME, WAV_OUTPUT_NAME } from "./canvas-video-segment-args";
 import { loadFFmpeg } from "./canvas-video-merge";
 
 export type VideoSegmentRange = {
@@ -62,6 +62,7 @@ async function runSegmentJob(
         const exitCode = await ffmpeg.exec(["-y", ...buildArgs(startSec, durationSec)]);
         if (exitCode !== 0) throw new Error("媒体处理失败，请确认视频编码格式兼容");
         const output = await ffmpeg.readFile(outputName);
+        assertUsableSegmentOutput(output, outputType.startsWith("audio/") ? "audio" : "video");
         onProgress?.({ phase: "encoding", progress: 100 });
         return new Blob([output as BlobPart], { type: outputType });
     } finally {
@@ -76,7 +77,8 @@ export async function trimVideoSegment(source: VideoSegmentSource, range: VideoS
 
 /** 从视频中移除音轨，保留画面并输出独立无声视频。 */
 export async function removeAudioFromVideo(source: VideoSegmentSource, range: VideoSegmentRange, durationMs?: number, onProgress?: (progress: VideoSegmentProgress) => void) {
-    return runSegmentJob(source, range, durationMs, (startSec, durationSec) => buildRemoveAudioArgs(startSec, durationSec), onProgress, "video/mp4", MUTED_VIDEO_OUTPUT_NAME);
+    const fullSource = isFullSourceRange(range.startMs, range.endMs, durationMs);
+    return runSegmentJob(source, range, durationMs, (startSec, durationSec) => buildRemoveAudioArgs(startSec, durationSec, MUTED_VIDEO_OUTPUT_NAME, { fullSource }), onProgress, "video/mp4", MUTED_VIDEO_OUTPUT_NAME);
 }
 
 /** 从视频片段提取声音；优先 MP3，精简 FFmpeg 内核不支持 MP3 时自动回退 WAV。 */
@@ -118,6 +120,7 @@ export async function extractVideoAudio(source: VideoSegmentSource, range: Video
         }
         if (exitCode !== 0) throw new Error("音频提取失败：当前 FFmpeg 内核不支持可用的音频编码");
         const output = await ffmpeg.readFile(outputName);
+        assertUsableSegmentOutput(output, "audio");
         onProgress?.({ phase: "encoding", progress: 100 });
         return new Blob([output as BlobPart], { type: outputType });
     } finally {
@@ -139,6 +142,7 @@ export async function cropVideo(source: VideoSegmentSource, crop: VideoCropRect,
         const exitCode = await ffmpeg.exec(["-y", ...buildVideoCropArgs(crop.x, crop.y, crop.width, crop.height)]);
         if (exitCode !== 0) throw new Error("视频画面裁切失败，请确认视频编码格式兼容");
         const output = await ffmpeg.readFile(CROP_OUTPUT_NAME);
+        assertUsableSegmentOutput(output, "video");
         onProgress?.({ phase: "encoding", progress: 100 });
         return new Blob([output as BlobPart], { type: "video/mp4" });
     } finally {

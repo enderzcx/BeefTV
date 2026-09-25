@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/protocol"
 
 	"github.com/google/uuid"
@@ -186,6 +187,10 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			resolution = declared
 		}
 	}
+	aspectRatio := strings.TrimSpace(input.Config.Size)
+	if input.Mode == "image" {
+		aspectRatio = protocolImageAspectRatio(input)
+	}
 	request := protocol.GenerationRequest{
 		Capability:    protocol.Capability(input.Mode),
 		Model:         input.Config.Model,
@@ -194,7 +199,7 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Images:        protocolImageReferences(input),
 		Videos:        protocolMediaReferences(input.ReferenceVideos, "video"),
 		Audios:        protocolMediaReferences(input.ReferenceAudios, "audio"),
-		AspectRatio:   input.Config.Size,
+		AspectRatio:   aspectRatio,
 		Resolution:    resolution,
 		Quality:       input.Config.Quality,
 		GenerateAudio: parseBool(input.Config.VideoGenerateAudio, false),
@@ -202,8 +207,9 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
 		Extra: map[string]any{
 			"videoSeconds": input.Config.VideoSeconds,
-			"audioVoice":   input.Config.AudioVoice,
-			"audioFormat":  input.Config.AudioFormat,
+			"audioVoice":   resolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
+			"audioFormat":  defaultString(input.Config.AudioFormat, "mp3"),
+			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
 			"count":        input.Config.Count,
 		},
 	}
@@ -234,6 +240,9 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Resolution: request.Resolution, Quality: request.Quality, GenerateAudio: request.GenerateAudio,
 		Watermark: request.Watermark, Format: input.Config.AudioFormat,
 	}
+	if instructions := strings.TrimSpace(input.Config.AudioInstructions); instructions != "" {
+		request.Extra["audioInstructions"] = instructions
+	}
 	request.ProviderOptions = make(map[string]map[string]any)
 	if configured, ok := input.Metadata["providerOptions"].(map[string]any); ok {
 		for namespace, raw := range configured {
@@ -243,6 +252,21 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		}
 	}
 	return request
+}
+
+// protocolImageAspectRatio keeps the canvas size for protocol AspectRatio unless
+// the capability field is size and the adapter copies that value onto body.size
+// with no ratio table of its own (openai-images).
+func protocolImageAspectRatio(input canvasGenerationInput) string {
+	raw := strings.TrimSpace(input.Config.Size)
+	key, value := imageSizeParameter(input.ImageCapability, input.Config.Size)
+	if key != "size" || value == "" {
+		return raw
+	}
+	if strings.TrimSpace(input.Config.InterfaceType) != string(model.ChannelInterfaceOpenAIImage) {
+		return raw
+	}
+	return value
 }
 
 func protocolImageReferences(input canvasGenerationInput) []protocol.MediaReference {

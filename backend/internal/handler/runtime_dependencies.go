@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/localapp"
 	"infinite-canvas/backend/internal/model"
 	localtask "infinite-canvas/backend/internal/task"
@@ -40,6 +41,7 @@ type RuntimeDependencies struct {
 	Projects           localapp.ProjectPort
 	Tasks              localapp.TaskPort
 	Generation         localapp.GenerationPort
+	BeefAPI            *beefapi.Service
 }
 
 type serviceRuntimeAdapter struct {

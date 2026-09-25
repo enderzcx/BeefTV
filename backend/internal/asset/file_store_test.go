@@ -52,6 +52,9 @@ func TestFileStoreWriteIsAtomicWhenReaderFails(t *testing.T) {
 func TestFileStoreRejectsTraversalAndSupportsOpenDelete(t *testing.T) {
 	store := NewFileStore(t.TempDir())
 	for _, key := range []string{"", "../escape", "/absolute"} {
+		if _, err := store.path(key); err == nil {
+			t.Fatalf("path(%q) accepted invalid key", key)
+		}
 		if err := store.Write(key, strings.NewReader("x")); err == nil {
 			t.Fatalf("Write(%q) accepted invalid key", key)
 		}

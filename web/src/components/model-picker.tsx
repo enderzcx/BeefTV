@@ -73,6 +73,9 @@ export function ModelPicker({
     // 旧画布可能保存过已下架或前端历史内置模型；它们不能重新进入当前可选目录。
     const current = options.includes(resolvedCurrent) ? resolvedCurrent : "";
     const creationVariant = variant === "creation";
+    const triggerLabel = current
+        ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
+        : placeholder;
 
     useLayoutEffect(() => {
         const trigger = triggerRef.current;
@@ -265,7 +268,7 @@ export function ModelPicker({
                     className={cn("canvas-composer-model-picker", fullWidth ? "w-full" : "min-w-36 max-w-full", className)}
                     aria-haspopup="listbox"
                     aria-expanded={open}
-                    aria-label={placeholder}
+                    aria-label={triggerLabel}
                     title={current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder}
                     onKeyDown={handleTriggerKeyDown}
                 >
@@ -273,7 +276,7 @@ export function ModelPicker({
                         <span className="canvas-model-picker-trigger-icon" style={{ background: theme.toolbar.itemHover }}>
                             <ModelIcon config={config} model={current} />
                         </span>
-                        <span className="min-w-0 flex-1 truncate">{current ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName)) : placeholder}</span>
+                        <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
                     </span>
                     <ChevronDown className={cn("canvas-model-picker-chevron", open && "is-open")} aria-hidden="true" />
                 </button>

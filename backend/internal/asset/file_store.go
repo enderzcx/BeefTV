@@ -146,18 +146,23 @@ func (s *FileStore) path(objectKey string) (string, error) {
 	if s == nil || strings.TrimSpace(s.root) == "" {
 		return "", errors.New("local resource store is not initialized")
 	}
-	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(objectKey)))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", errors.New("local resource object key is invalid")
+	clean, err := localizedObjectKey(objectKey)
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(s.root, clean), nil
 }
 
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
+// localizedObjectKey accepts slash-separated relative keys and rejects
+// traversal, rooted, volume-relative, and absolute paths on every OS.
+// filepath.IsAbs is not enough on Windows: "/absolute" and "\absolute" are
+// rooted but not volume-qualified, so IsAbs is false there.
+func localizedObjectKey(objectKey string) (string, error) {
+	trimmed := strings.TrimSpace(objectKey)
+	native := filepath.FromSlash(trimmed)
+	clean := filepath.Clean(native)
+	if trimmed == "" || clean == "." || clean == ".." || !filepath.IsLocal(native) || !filepath.IsLocal(clean) {
+		return "", errors.New("local resource object key is invalid")
 	}
-	defer directory.Close()
-	return directory.Sync()
+	return clean, nil
 }

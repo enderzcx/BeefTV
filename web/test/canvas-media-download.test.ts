@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
-import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension } from "@/lib/canvas/canvas-media-download";
+import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension, sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 function mediaNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
@@ -39,6 +39,23 @@ describe("canvas media download", () => {
 
     test("MIME 类型不明确时从远程资源 URL 识别扩展名", () => {
         expect(canvasMediaFileExtension(mediaNode({ metadata: { content: "https://example.com/result.jpeg?token=hidden", mimeType: "image/*" } }))).toBe("jpg");
+    });
+
+    test("导出文件名去掉路径和非法字符", () => {
+        expect(sanitizeDownloadFileName("../角色:三视图?.png")).toBe("角色_三视图.png");
+    });
+
+    test("audio/wave 与其它 WAV 别名下载为 .wav，不回落到 mp3", () => {
+        const now = new Date(2026, 8, 24, 12);
+        for (const mimeType of ["audio/wave", "audio/wav", "audio/x-wav", "audio/vnd.wave"]) {
+            const node = mediaNode({
+                type: CanvasNodeType.Audio,
+                title: "旁白",
+                metadata: { content: "blob:http://localhost/tts", mimeType, status: "success" },
+            });
+            expect(canvasMediaFileExtension(node)).toBe("wav");
+            expect(buildCanvasMediaDownloadFileName("画布", node, now)).toBe("画布_旁白_20260924.wav");
+        }
     });
 });
 

@@ -44,8 +44,21 @@ describe("CanvasVideoInlineTrim", () => {
         );
 
         expect(html).toContain("data-canvas-node-panel");
+        expect(html).toContain("canvas-video-trim-overlay");
         expect(html).toContain('style="left:0;top:0;transform:translate3d(');
         expect(html).toContain("width:540px");
         expect(html).toContain('aria-label="视频片段剪辑"');
+        expect(html).toContain('aria-label="确认剪辑"');
+    });
+
+    test("raises only the trim overlay above the main dock stacking rule", async () => {
+        const source = await Bun.file(new URL("../src/components/canvas/canvas-video-inline-trim.tsx", import.meta.url)).text();
+        const styles = await Bun.file(new URL("../src/styles/globals.css", import.meta.url)).text();
+        expect(source).toContain("avoidBottomDock");
+        expect(source).toContain('className="canvas-video-trim-overlay"');
+        expect(styles).toContain(".canvas-video-trim-overlay {");
+        expect(styles).toContain("z-index: calc(var(--z-canvas-overlay-active) + 20) !important;");
+        expect(styles).toContain(".canvas-main-toolbar {");
+        expect(styles).toContain("z-index: calc(var(--z-canvas-overlay-active) + 10) !important;");
     });
 });

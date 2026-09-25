@@ -47,7 +47,18 @@ describe("BeefTV freeform canvas empty state", () => {
         const node: CanvasNodeData = { id: "text-1", type: CanvasNodeType.Text, title: "文本节点 1", position: { x: 0, y: 0 }, width: 350, height: 350, metadata: { content: "", status: "idle" } };
         const markup = renderToStaticMarkup(<CanvasNodeContent node={node} theme={canvasThemes.dark} isEditingContent={false} textareaRef={createRef<HTMLTextAreaElement>()} isBatchRoot={false} batchCount={0} batchExpanded={false} batchOpening={false} batchRecovering={false} onContentChange={() => {}} onStopEditing={() => {}} mentionReferences={[]} />);
         for (const label of ["自己编写内容", "文生视频", "图片反推提示词", "文字生音乐"]) expect(markup).not.toContain(label);
-        for (const label of ["GVLM 3.1", "6 积分"]) expect(markup).toContain(label);
+        for (const label of ["GVLM 3.1", "GVLM3.1", "6 积分", "6积分"]) expect(markup).not.toContain(label);
+        expect(markup).toContain("canvas-node-empty-text-mark");
+        expect(markup).toContain("canvas-node-text-footer");
+        expect(markup).toContain("pointer-events-none");
+        expect(markup).toContain("aria-hidden");
+    });
+
+    test("does not invent a model or price when empty text metadata names one", () => {
+        const node: CanvasNodeData = { id: "text-2", type: CanvasNodeType.Text, title: "文本节点 2", position: { x: 0, y: 0 }, width: 350, height: 350, metadata: { content: "", status: "idle", model: "GVLM 3.1" } };
+        const markup = renderToStaticMarkup(<CanvasNodeContent node={node} theme={canvasThemes.dark} isEditingContent={false} textareaRef={createRef<HTMLTextAreaElement>()} isBatchRoot={false} batchCount={0} batchExpanded={false} batchOpening={false} batchRecovering={false} onContentChange={() => {}} onStopEditing={() => {}} mentionReferences={[]} />);
+        expect(markup).not.toContain("GVLM 3.1");
+        expect(markup).not.toContain("6 积分");
     });
 
     test("keeps the primary add-node order aligned with the LibTV palette", () => {

@@ -5,6 +5,7 @@ import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, 
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -400,7 +401,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
                                 onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                                 onOpenChange={expanded ? undefined : onImageSettingsOpenChange}
-                                summaryOverride={localOnly ? "16:9 · 标准画质 · 2K · 1张" : undefined}
                             />
                         </>
                     ) : mode === "video" ? (
@@ -416,7 +416,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 config={config}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
                                 onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))}
-                                summaryOverride={localOnly ? "16:9 · 720P · 5s · 1个" : undefined}
                             />
                         </>
                     ) : mode === "audio" ? (
@@ -424,7 +423,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             config={config}
                             buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
                             onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))}
-                            summaryOverride={localOnly ? "中文 · 24k · wav" : undefined}
                         />
                     ) : null}
                     {renderSubmitButton(expanded)}
@@ -1089,12 +1087,14 @@ export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mo
         vquality: defaults.vquality ?? normalizeVideoResolution(globalConfig.vquality || defaultConfig.vquality),
         videoGenerateAudio: defaults.videoGenerateAudio ?? globalConfig.videoGenerateAudio ?? defaultConfig.videoGenerateAudio,
         videoWatermark: defaults.videoWatermark ?? globalConfig.videoWatermark ?? defaultConfig.videoWatermark,
-        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
-        audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch || defaultConfig.audioPitch,
-        audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume || defaultConfig.audioVolume,
-        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
+        ...resolveAudioSpeechSettings(model, {
+            audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
+            audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
+            audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
+            audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
+            audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
+            audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions,
+        }),
         count: defaults.count ?? String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
 }

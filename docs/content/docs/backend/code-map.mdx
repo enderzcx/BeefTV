@@ -29,12 +29,14 @@ Wails / local dev
 | 供应商适配 | `backend/internal/provider`, `protocol`, `outbound` | 外部模型 API、自定义渠道和插件协议 |
 | 数据 | `backend/internal/database`, `repository` | SQLite schema、迁移和持久化 |
 | HTTP | `backend/internal/handler` | 本地 `/api` 合同、输入限制和响应封装 |
+| 企业连接 | `backend/internal/beefapi` | 设备授权、本机密钥和连接状态 |
+| 本机 MCP | `backend/internal/mcp` | 进程内 initialize / tools/list / tools/call |
 | 前端 | `web/src` | React 画布、项目、素材、模型配置与插件 UI |
 
 ## 硬边界
 
 - 不提供登录、注册、计费、支付、公开分享或云存储路由。
-- 密钥仅在本地模型配置中保存，不进入画布快照或日志响应。
+- 内置 BeefAPI 密钥保存在本机加密连接存储中；其他手动渠道密钥仍在本地模型配置中。密钥不进入画布快照或日志响应。
 - 外部 API 是生成能力，不是 SaaS 数据面；不得在“本地化清理”中删除 Provider、Protocol、自定义渠道或插件扩展点。
 - worker 并发策略由任务运行时管理，架构整理不得顺带改变其行为。
 

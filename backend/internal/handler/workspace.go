@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/workspace"
 
 	"github.com/gin-gonic/gin"
@@ -71,7 +72,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 				failService(c, err)
 				return
 			}
-			ok(c, gin.H{"config": effective.Config, "revision": effective.Revision, "health": health, "source": "builtin+local"})
+			ok(c, gin.H{"config": redactModelConfig(c, svc, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
 			return
 		}
 		body, err := providerConfig.ReadLocalModelConfig()
@@ -88,7 +89,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusInternalServerError, errors.New("本地模型配置损坏"))
 			return
 		}
-		ok(c, gin.H{"config": config})
+		ok(c, gin.H{"config": redactModelConfig(c, svc, config)})
 	})
 	r.PUT("/workspace/model-config", func(c *gin.Context) {
 		if _, err := workspaceForLocalRequest(c, svc); err != nil {
@@ -108,6 +109,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusBadRequest, errors.New("本地模型配置格式错误"))
 			return
 		}
+		envelope.Config = preserveManagedModelConfig(c, svc, envelope.Config)
 		providerConfig := requestProviderConfig(c, svc)
 		if versioned, supportsVersioning := providerConfig.(VersionedProviderConfig); supportsVersioning && envelope.ExpectedRevision != nil {
 			revision, err := versioned.SaveLocalModelConfigRevision(envelope.Config, *envelope.ExpectedRevision)
@@ -128,6 +130,41 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 		}
 		ok(c, gin.H{"saved": true})
 	})
+}
+
+func redactModelConfig(c *gin.Context, svc *app.Service, config map[string]any) map[string]any {
+	managed := false
+	if connection, err := requestBeefAPI(c, svc); err == nil && connection != nil {
+		managed = connection.HasManagedCredential()
+		return connection.RedactConfig(config)
+	}
+	return beefapi.RedactConfig(config, managed)
+}
+
+func preserveManagedModelConfig(c *gin.Context, svc *app.Service, raw json.RawMessage) json.RawMessage {
+	var incoming map[string]any
+	if err := json.Unmarshal(raw, &incoming); err != nil {
+		return raw
+	}
+	existing := map[string]any{}
+	providerConfig := requestProviderConfig(c, svc)
+	if versioned, ok := providerConfig.(VersionedProviderConfig); ok {
+		if effective, _, err := versioned.LoadEffectiveModelConfig(); err == nil {
+			existing = effective.Config
+		}
+	}
+	managed := false
+	if connection, err := requestBeefAPI(c, svc); err == nil && connection != nil {
+		managed = connection.HasManagedCredential()
+		connection.PreserveWrite(incoming, existing)
+	} else {
+		beefapi.PreserveManagedChannel(incoming, existing, managed)
+	}
+	encoded, err := json.Marshal(incoming)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func workspaceForLocalRequest(c *gin.Context, svc *app.Service) (workspace.Context, error) {

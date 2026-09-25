@@ -4,11 +4,7 @@ BeefTV 的桌面版是 Wails 应用：前端运行在 WebView，Go 后端在同�
 
 ## 数据位置
 
-默认数据目录由 Go 的 `os.UserConfigDir()` 决定，最终目录为：
-
-```text
-<系统用户配置目录>/BeefTV
-```
+默认数据目录由 Go 的 `os.UserConfigDir()` 决定，最终目录为 `<系统用户配置目录>/BeefTV`。Windows 上是 `%AppData%\BeefTV`，macOS 上是 `~/Library/Application Support/BeefTV`。
 
 其中包含本地 SQLite 数据库、资源文件和迁移备份。验收或调试时可通过环境变量指定隔离目录：
 
@@ -17,7 +13,14 @@ CANVAS_DESKTOP_DATA_DIR="$(mktemp -d /tmp/beeftv-data.XXXXXX)" \
   backend/cmd/desktop/build/bin/BeefTV.app/Contents/MacOS/BeefTV
 ```
 
-这个变量只改变数据目录，不改变应用的本地工作区和无登录行为。
+Windows：
+
+```powershell
+$env:CANVAS_DESKTOP_DATA_DIR = Join-Path $env:TEMP "beeftv-data"
+backend\cmd\desktop\build\bin\BeefTV.exe
+```
+
+这个变量只改变数据目录，不改变应用的本地工作区和无登录行为。官方插件仍然从可执行文件旁边的 `plugin-packages\` 加载，不跟数据目录走。
 
 ## 开发与构建
 

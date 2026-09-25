@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Input, Modal, Spin } from "antd";
 import { FileAudio, FileVideo, Image as ImageIcon, Search } from "lucide-react";
 
+import { CachedResourceImage } from "@/components/cached-resource-image";
 import { generationTaskMode } from "@/lib/canvas/canvas-generation-task-sync";
 import { localTaskHistoryFromProjects } from "@/lib/local-task-history";
+import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey, resourceStorageKey } from "@/services/api/resources";
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -56,12 +58,18 @@ export function CanvasGenerationHistoryPicker({ open, projectId, onClose, onSele
 
 function HistoryTaskCard({ task, onSelect }: { task: GenerationTask; onSelect: () => void }) {
     const mode = generationTaskMode(task);
-    const preview = task.previewPosterUrl || task.previewUrl || previewFromResult(task);
+    const preview = generationHistoryPreviewImageSrc(task);
+    const storageKey = generationHistoryPreviewStorageKey(task);
     const Icon = mode === "video" ? FileVideo : mode === "audio" ? FileAudio : ImageIcon;
+    const iconFallback = <div className="grid size-full place-items-center text-foreground/45"><Icon className="size-7" /></div>;
     return (
         <button type="button" className="group overflow-hidden rounded-lg border border-border/70 bg-surface text-left transition hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onSelect} aria-label={`插入${modeLabel(mode)}：${task.prompt.slice(0, 40)}`}>
             <div className="relative aspect-video overflow-hidden bg-surface-tertiary">
-                {preview ? <img src={preview} alt="生成结果预览" loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-foreground/45"><Icon className="size-7" /></div>}
+                {storageKey ? (
+                    <CachedResourceImage storageKey={storageKey} alt="生成结果预览" loading="lazy" className="size-full object-cover" fallback={iconFallback} loadingFallback={iconFallback} />
+                ) : preview ? (
+                    <img src={preview} alt="生成结果预览" loading="lazy" className="size-full object-cover" />
+                ) : iconFallback}
                 <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">{modeLabel(mode)}</span>
             </div>
             <div className="truncate px-2 py-2 text-xs text-foreground/80" title={task.prompt}>{task.prompt || "无提示词"}</div>
@@ -73,14 +81,76 @@ function modeLabel(mode: string) {
     return mode === "video" ? "视频" : mode === "audio" ? "音频" : "图片";
 }
 
+export function generationHistoryPreviewImageSrc(task: GenerationTask) {
+    const mode = generationTaskMode(task);
+    if (mode === "audio") return "";
+    const inline = mode === "video"
+        ? inlineImagePreviewSrc(task.previewPosterUrl || previewPosterFromResult(task))
+        : inlineImagePreviewSrc(task.previewPosterUrl || task.previewUrl || previewFromResult(task));
+    if (generationHistoryPreviewStorageKey(task) && !inline.startsWith("data:image/")) return "";
+    return inline;
+}
+
+export function generationHistoryPreviewStorageKey(task: GenerationTask) {
+    const mode = generationTaskMode(task);
+    if (mode === "audio") return "";
+    if (mode === "video") {
+        const poster = task.previewPosterUrl || previewPosterFromResult(task);
+        const resourceId = ownedResourceIdFromMediaRef(undefined, poster);
+        return resourceId ? resourceStorageKey(resourceId) : "";
+    }
+    return imagePreviewStorageKey(task);
+}
+
+function inlineImagePreviewSrc(value: string) {
+    if (!value || ownedResourceIdFromMediaRef(undefined, value)) return "";
+    return isImagePreviewSrc(value) ? value : "";
+}
+
+function imagePreviewStorageKey(task: GenerationTask) {
+    const preview = task.previewPosterUrl || task.previewUrl || previewFromResult(task);
+    if (!task.resultJson) {
+        const resourceId = ownedResourceIdFromMediaRef(undefined, preview);
+        return resourceId ? resourceStorageKey(resourceId) : "";
+    }
+    try {
+        const result = JSON.parse(task.resultJson) as { images?: Array<{ storageKey?: string; dataUrl?: string; url?: string }> };
+        const image = result.images?.[0];
+        const resourceId = resourceIdFromStorageKey(image?.storageKey) || ownedResourceIdFromMediaRef(image?.storageKey, image?.dataUrl || image?.url || preview);
+        return resourceId ? resourceStorageKey(resourceId) : "";
+    } catch {
+        const resourceId = ownedResourceIdFromMediaRef(undefined, preview);
+        return resourceId ? resourceStorageKey(resourceId) : "";
+    }
+}
+
+function isImagePreviewSrc(value: string) {
+    if (!value) return false;
+    const lower = value.toLowerCase();
+    if (lower.startsWith("data:image/")) return true;
+    if (lower.startsWith("data:")) return false;
+    if (/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|mkv)(?:\?|$)/i.test(lower)) return false;
+    return true;
+}
+
+function previewPosterFromResult(task: GenerationTask) {
+    if (!task.resultJson) return "";
+    try {
+        const result = JSON.parse(task.resultJson) as { video?: { previewUrl?: string; posterUrl?: string } };
+        return result.video?.previewUrl || result.video?.posterUrl || "";
+    } catch {
+        return "";
+    }
+}
+
 function previewFromResult(task: GenerationTask) {
     if (!task.resultJson) return "";
     try {
         const result = JSON.parse(task.resultJson) as { images?: Array<{ dataUrl?: string; url?: string }>; video?: { previewUrl?: string; dataUrl?: string; url?: string }; audio?: { dataUrl?: string; url?: string } };
         const mode = generationTaskMode(task);
         if (mode === "image") return result.images?.[0]?.dataUrl || result.images?.[0]?.url || "";
-        if (mode === "video") return result.video?.previewUrl || result.video?.dataUrl || result.video?.url || "";
-        return result.audio?.dataUrl || result.audio?.url || "";
+        if (mode === "video") return result.video?.previewUrl || "";
+        return "";
     } catch {
         return "";
     }

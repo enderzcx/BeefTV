@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 
 import * as workspaceBootstrap from "../src/components/workspace/workspace-bootstrap-hydrator";
 import { localWorkspaceConfig } from "../src/lib/user-session";
-import { createModelChannel, defaultConfig } from "../src/stores/use-config-store";
+import { mergeManagedBeefAPICatalog } from "../src/pages/settings/channel-settings-pane";
+import { createModelChannel, defaultConfig, type AiConfig } from "../src/stores/use-config-store";
 import { createModelConfigRepository } from "../src/services/model-config-repository";
 
 test("local-mode startup restores the local model config after the session", async () => {
@@ -151,6 +152,71 @@ test("model config repository refreshes revision after conflict and retries the 
 
     expect(expectedRevisions).toEqual([2, 7]);
     expect(repository.getState()).toMatchObject({ status: "saved", revision: 8, dirty: false });
+});
+
+test("catalog refresh keeps pending manual provider edits across delayed read and write", async () => {
+    const writes: AiConfig[] = [];
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+    let releaseCatalogRead: (() => void) | undefined;
+    const catalogRead = new Promise<void>((resolve) => { releaseCatalogRead = resolve; });
+    const serverCatalog = {
+        ...defaultConfig,
+        channels: [
+            createModelChannel({
+                id: "beefapi",
+                pinned: true,
+                credentialRef: "beefapi-enterprise",
+                models: ["enterprise-image"],
+                modelProfiles: [{ model: "enterprise-image", capability: "image", protocol: "openai-image" }],
+            }),
+            createModelChannel({ id: "manual", name: "磁盘上的旧渠道", apiKey: "disk-key", models: ["old-image"] }),
+        ],
+    };
+    const repository = createModelConfigRepository({
+        read: async () => ({ config: serverCatalog, revision: 4, health: "ready", source: "builtin+local" }),
+        write: async (config, expectedRevision) => {
+            writes.push(config);
+            if (writes.length === 1) await firstWrite;
+            return { saved: true, revision: expectedRevision + 1 };
+        },
+    });
+    await repository.hydrate();
+    let current: AiConfig = {
+        ...defaultConfig,
+        imageModel: "manual::draft-image",
+        channels: [
+            createModelChannel({ id: "beefapi", pinned: true, models: ["stale-image"] }),
+            createModelChannel({ id: "manual", name: "第一次改名", apiKey: "manual-key", models: ["draft-image"] }),
+        ],
+    };
+    const first = repository.commit(current);
+    const catalogRefresh = (async () => {
+        await catalogRead;
+        return mergeManagedBeefAPICatalog(current, serverCatalog);
+    })();
+    current = {
+        ...current,
+        channels: current.channels.map((channel) => (
+            channel.id === "manual" ? { ...channel, name: "连接过程中的改名", models: ["draft-image", "extra-image"] } : channel
+        )),
+    };
+    repository.commit(current);
+    releaseCatalogRead?.();
+    const merged = await catalogRefresh;
+    const second = repository.commit(merged);
+    releaseFirstWrite?.();
+    await Promise.all([first, second]);
+
+    expect(merged.channels.find((channel) => channel.id === "manual")?.name).toBe("连接过程中的改名");
+    expect(merged.channels.find((channel) => channel.id === "manual")?.models).toEqual(["draft-image", "extra-image"]);
+    expect(merged.channels.find((channel) => channel.id === "beefapi")?.models).toEqual(["enterprise-image"]);
+    const lastWrite = writes[writes.length - 1];
+    expect(lastWrite?.channels.find((channel) => channel.id === "manual")?.name).toBe("连接过程中的改名");
+    expect(lastWrite?.channels.find((channel) => channel.id === "manual")?.models).toEqual(["draft-image", "extra-image"]);
+    expect(lastWrite?.channels.find((channel) => channel.id === "beefapi")?.models).toEqual(["enterprise-image"]);
+    expect(writes.some((config) => config.channels.find((channel) => channel.id === "manual")?.name === "第一次改名")).toBe(true);
+    expect(repository.getState()).toMatchObject({ dirty: false });
 });
 
 test("model config repository does not save browser state before canonical hydration", async () => {

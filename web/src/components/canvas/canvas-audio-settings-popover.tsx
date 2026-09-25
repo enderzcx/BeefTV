@@ -4,7 +4,7 @@ import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
 import { AudioSettingsPanel } from "@/components/audio-settings-panel";
-import { audioFormatLabel, audioPitchLabel, audioSpeedLabel, audioVolumeLabel, audioVoiceLabel } from "@/lib/audio-generation";
+import { audioSettingsSummary } from "@/lib/audio-generation";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -25,7 +25,7 @@ export function CanvasAudioSettingsPopover({ config, onConfigChange, buttonClass
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
-    const summary = summaryOverride || `${audioVoiceLabel(config.audioVoice)} · ${audioFormatLabel(config.audioFormat)} · ${audioSpeedLabel(config.audioSpeed)} · 音调${audioPitchLabel(config.audioPitch)} · 音量${audioVolumeLabel(config.audioVolume)}`;
+    const summary = summaryOverride || audioSettingsSummary(config);
 
     useEffect(() => {
         if (!open) return;

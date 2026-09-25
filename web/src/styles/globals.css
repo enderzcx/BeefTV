@@ -2231,7 +2231,8 @@
     }
 
     /* Agent 停靠态保留节点内容与连接点，收起会遮挡节点内容的内联编辑按钮。 */
-    .canvas-editor-shell[data-agent-open="true"] .canvas-node-inline-action {
+    .canvas-editor-shell[data-agent-open="true"] .canvas-node-inline-action,
+    .canvas-editor-shell[data-agent-open="true"] .canvas-node-inline-edit {
         display: none;
     }
 
@@ -8348,6 +8349,11 @@ html:not(.dark) .creation-studio-control:hover,
         z-index: calc(var(--z-canvas-overlay-active) + 10) !important;
     }
 
+    /* Active video trim is an editor, not a node composer. Keep confirm above the dock. */
+    .canvas-video-trim-overlay {
+        z-index: calc(var(--z-canvas-overlay-active) + 20) !important;
+    }
+
     /* Compat mode follows the reference canvas' taller bottom docks: the
        controls sit in a roughly 50px floating rail instead of the compact
        local-first 40px rail. */
@@ -9396,11 +9402,12 @@ html:not(.dark) .creation-studio-control:hover,
         transition: transform 160ms ease-out;
     }
 
-    /* The editor surface replaces the inline text action while open; keeping
-       both visible creates a duplicate action over the node card. */
-    .canvas-editor-shell[data-canvas-editor-panel-open="true"] .canvas-node-inline-action {
-        opacity: 0 !important;
-        pointer-events: none;
+    /* The editor surface replaces the inline text action while open. Keep the
+       control out of hit-testing and the accessibility tree; opacity:0 still
+       leaves an unclickable 放大编辑 in snapshots. */
+    .canvas-editor-shell[data-canvas-editor-panel-open="true"] .canvas-node-inline-action,
+    .canvas-editor-shell[data-canvas-editor-panel-open="true"] .canvas-node-inline-edit {
+        display: none;
     }
 
     @media (min-width: 1024px) {
@@ -9421,6 +9428,7 @@ html:not(.dark) .creation-studio-control:hover,
         }
 
         .canvas-node-text-footer {
+            pointer-events: none;
             border-top-color: transparent !important;
             color: transparent !important;
         }
@@ -9437,12 +9445,20 @@ html:not(.dark) .creation-studio-control:hover,
         transition: none;
     }
 
+    /* Do not set pointer-events here. The unselected host uses
+       pointer-events-none; a child `auto` would make the opacity-0
+       放大编辑 button hit-testable again. Selected hosts restore
+       pointer-events-auto on `.canvas-node-inline-edit`. */
     .canvas-node-inline-action {
         border: 0;
         border-radius: var(--r-md);
         background: var(--canvas-composer-surface);
         color: var(--cn-text);
         box-shadow: var(--elevation-card);
+    }
+
+    .canvas-node-text-footer {
+        pointer-events: none;
     }
 
     .canvas-node-inline-action:hover {

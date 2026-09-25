@@ -1,12 +1,14 @@
 import { requestAudioGeneration } from "@/services/api/audio";
 import { requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { createVideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, encodeChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { channelHasGenerationCredential, defaultConfig, encodeChannelModel, isBuiltinBeefAPIChannel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import type { ModelProtocol } from "@/lib/model-protocols";
 
 export async function testChannelModelConnection(channel: ModelChannel, model: string, capability: ModelCapability, protocol: ModelProtocol) {
     if (!channel.baseUrl.trim()) throw new Error("请先填写 Base URL");
-    if (!channel.apiKey.trim()) throw new Error("请先填写 API Key");
+    if (!channelHasGenerationCredential(channel)) {
+        throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接 BeefAPI" : "请先填写 API Key");
+    }
     const selectedModel = encodeChannelModel(channel.id, model);
     const modelProfile = channel.modelProfiles?.find((item) => item.model === model);
     const testProtocol = channel.apiFormat === "gemini" && !modelProfile?.protocol ? undefined : protocol;
