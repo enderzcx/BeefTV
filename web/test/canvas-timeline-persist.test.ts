@@ -83,17 +83,23 @@ describe("canvas timeline persistence", () => {
 
     test("timeline dialog does not close when save rejects", async () => {
         let closed = false;
-        const error = await runTimelineDialogSaveAttempt(async () => {
-            throw new Error("画布后端持久化失败");
-        }, () => {
-            closed = true;
-        });
+        const error = await runTimelineDialogSaveAttempt(
+            async () => {
+                throw new Error("画布后端持久化失败");
+            },
+            () => {
+                closed = true;
+            },
+        );
         expect(closed).toBe(false);
         expect((error as Error).message).toBe("画布后端持久化失败");
         closed = false;
-        const ok = await runTimelineDialogSaveAttempt(async () => undefined, () => {
-            closed = true;
-        });
+        const ok = await runTimelineDialogSaveAttempt(
+            async () => undefined,
+            () => {
+                closed = true;
+            },
+        );
         expect(ok).toBeUndefined();
         expect(closed).toBe(true);
     });
@@ -106,4 +112,3 @@ describe("canvas timeline persistence", () => {
         expect(source).toContain("if (saving) return");
     });
 });
-

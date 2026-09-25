@@ -15,7 +15,9 @@ const assetsPath = join(dir, "assets.ts");
 const resourcesPath = join(dir, "resources.ts");
 const modePath = join(dir, "mode.ts");
 
-writeFileSync(storePath, `
+writeFileSync(
+    storePath,
+    `
 export type CanvasProject = any;
 export let projects: any[] = [];
 export const resetProjects = (next: any[]) => { projects = next; };
@@ -38,9 +40,12 @@ export let flushImpl = async () => {};
 export const setFlushImpl = (next) => { flushImpl = next; };
 export const flushCanvasStorePersistence = async () => { flushCalls += 1; return flushImpl(); };
 export const resetFlush = () => { flushCalls = 0; flushImpl = async () => {}; };
-`);
+`,
+);
 writeFileSync(historyPath, "export const useCanvasHistoryStore = { getState: () => ({ recordDeletedProjects: () => {} }) };\n");
-writeFileSync(requestPath, `
+writeFileSync(
+    requestPath,
+    `
 export let puts: Array<{ path: string; body: any }> = [];
 export let putError: Error | null = null;
 export let putGuard = null;
@@ -63,17 +68,21 @@ export const http = {
     return { project: { id: body.project.id, title: body.project.title, createdAt: body.project.createdAt, updatedAt: body.project.updatedAt, revision: (body.project.revision ?? 0) + 1 } };
   },
 };
-`);
+`,
+);
 writeFileSync(assetsPath, "export const useAssetStore = { getState: () => ({ assets: [] }) };\n");
 writeFileSync(resourcesPath, 'export const resourceIdFromStorageKey = () => "";\n');
 writeFileSync(modePath, "export let localMode = true; export const setLocalMode = (next: boolean) => { localMode = next; }; export const isLocalWorkspaceMode = () => localMode;\n");
-writeFileSync(join(dir, "repository.ts"), repositorySource
-    .replace('"@/stores/canvas/use-canvas-store"', JSON.stringify(pathToFileURL(storePath).href))
-    .replace('"@/stores/canvas/use-canvas-history-store"', JSON.stringify(pathToFileURL(historyPath).href))
-    .replace('"@/services/api/request"', JSON.stringify(pathToFileURL(requestPath).href))
-    .replace('"@/services/api/resources"', JSON.stringify(pathToFileURL(resourcesPath).href))
-    .replace('"@/stores/use-asset-store"', JSON.stringify(pathToFileURL(assetsPath).href))
-    .replace('"@/services/workspace-mode"', JSON.stringify(pathToFileURL(modePath).href)));
+writeFileSync(
+    join(dir, "repository.ts"),
+    repositorySource
+        .replace('"@/stores/canvas/use-canvas-store"', JSON.stringify(pathToFileURL(storePath).href))
+        .replace('"@/stores/canvas/use-canvas-history-store"', JSON.stringify(pathToFileURL(historyPath).href))
+        .replace('"@/services/api/request"', JSON.stringify(pathToFileURL(requestPath).href))
+        .replace('"@/services/api/resources"', JSON.stringify(pathToFileURL(resourcesPath).href))
+        .replace('"@/stores/use-asset-store"', JSON.stringify(pathToFileURL(assetsPath).href))
+        .replace('"@/services/workspace-mode"', JSON.stringify(pathToFileURL(modePath).href)),
+);
 
 const repository: typeof import("../src/services/local-workspace-repository") = await import(join(dir, "repository.ts"));
 const store = await import(storePath);
@@ -84,15 +93,17 @@ const timeline: TimelineProject = normalizeTimelineProject({
     version: 2,
     tracks: createDefaultTracks(),
     durationMs: 5600,
-    clips: [{
-        id: "clip-audio-1",
-        kind: "audio",
-        nodeId: "7vvfM674HnenwTekmj88V",
-        trackId: "audio-1",
-        startMs: 0,
-        durationMs: 5600,
-        title: "旁白",
-    }],
+    clips: [
+        {
+            id: "clip-audio-1",
+            kind: "audio",
+            nodeId: "7vvfM674HnenwTekmj88V",
+            trackId: "audio-1",
+            startMs: 0,
+            durationMs: 5600,
+            title: "旁白",
+        },
+    ],
 });
 
 const project = {
@@ -125,9 +136,7 @@ describe("persistCanvasTimeline http", () => {
         expect(request.puts).toHaveLength(1);
         expect(request.puts[0].path).toBe("/canvas-projects/canvas-a");
         expect(request.puts[0].body.project.timeline.durationMs).toBe(5600);
-        expect(request.puts[0].body.project.timeline.clips).toEqual([
-            expect.objectContaining({ id: "clip-audio-1", kind: "audio", nodeId: "7vvfM674HnenwTekmj88V", durationMs: 5600 }),
-        ]);
+        expect(request.puts[0].body.project.timeline.clips).toEqual([expect.objectContaining({ id: "clip-audio-1", kind: "audio", nodeId: "7vvfM674HnenwTekmj88V", durationMs: 5600 })]);
         expect(request.puts[0].body.project.timeline.tracks.map((track: { kind: string }) => track.kind)).toEqual(["video", "audio", "subtitle"]);
     });
 
@@ -174,9 +183,12 @@ describe("persistCanvasTimeline http", () => {
         store.resetFlush();
         store.resetProjects([{ ...project }]);
         let resolveFlush: () => void = () => undefined;
-        store.setFlushImpl(() => new Promise<void>((resolve) => {
-            resolveFlush = resolve;
-        }));
+        store.setFlushImpl(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveFlush = resolve;
+                }),
+        );
         let settled = false;
         const pending = repository.persistCanvasTimeline(project.id, timeline).then(() => {
             settled = true;
@@ -315,10 +327,12 @@ describe("persistCanvasDocument http", () => {
         }
         expect((caught as Error).message).toContain("尚未进入素材库");
         expect(request.puts).toEqual([]);
-        expect(store.projects[0].nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
-            title: node.title,
-            assetId: node.metadata?.assetId || "",
-        }))).toEqual([{ title: "旁白", assetId: "asset-owned" }]);
+        expect(
+            store.projects[0].nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
+                title: node.title,
+                assetId: node.metadata?.assetId || "",
+            })),
+        ).toEqual([{ title: "旁白", assetId: "asset-owned" }]);
     });
 
     it("desktop PUT that inspects canvas media accepts history nodes that reuse the owned assetId", async () => {
@@ -338,10 +352,12 @@ describe("persistCanvasDocument http", () => {
         expect(request.puts).toHaveLength(1);
         expect(request.puts[0].path).toBe("/canvas-projects/canvas-a");
         expect(request.puts[0].body.assets).toBeUndefined();
-        expect(request.puts[0].body.project.nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
-            title: node.title,
-            assetId: node.metadata?.assetId,
-        }))).toEqual([
+        expect(
+            request.puts[0].body.project.nodes.map((node: { title: string; metadata?: { assetId?: string } }) => ({
+                title: node.title,
+                assetId: node.metadata?.assetId,
+            })),
+        ).toEqual([
             { title: "旁白", assetId: "asset-owned" },
             { title: "历史音频", assetId: "asset-owned" },
         ]);
@@ -349,9 +365,11 @@ describe("persistCanvasDocument http", () => {
 
     it("deferred PUT rejection keeps intervening unrelated edits and drops the optimistic nodes patch", async () => {
         let rejectPut: (error: Error) => void = () => undefined;
-        request.setPutGate(new Promise<void>((_resolve, reject) => {
-            rejectPut = reject;
-        }));
+        request.setPutGate(
+            new Promise<void>((_resolve, reject) => {
+                rejectPut = reject;
+            }),
+        );
         store.resetProjects([{ ...project, nodes: [originalAudioNode], revision: 4 }]);
         const pending = repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
         for (let attempt = 0; attempt < 20 && request.putStarted === 0; attempt += 1) {
@@ -360,7 +378,7 @@ describe("persistCanvasDocument http", () => {
         expect(request.putStarted).toBe(1);
         store.useCanvasStore.getState().updateProject(project.id, { title: "改名后的画布" });
         store.useCanvasStore.setState((state: { projects: Array<Record<string, unknown>> }) => ({
-            projects: state.projects.map((item) => item.id === project.id ? { ...item, revision: 9 } : item),
+            projects: state.projects.map((item) => (item.id === project.id ? { ...item, revision: 9 } : item)),
         }));
         rejectPut(new Error("画布保存失败，请重试"));
         let caught: unknown;
@@ -378,9 +396,11 @@ describe("persistCanvasDocument http", () => {
 
     it("deferred PUT rejection keeps in-flight node edits that are not the optimistic insert", async () => {
         let rejectPut: (error: Error) => void = () => undefined;
-        request.setPutGate(new Promise<void>((_resolve, reject) => {
-            rejectPut = reject;
-        }));
+        request.setPutGate(
+            new Promise<void>((_resolve, reject) => {
+                rejectPut = reject;
+            }),
+        );
         store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
         const pending = repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
         for (let attempt = 0; attempt < 20 && request.putStarted === 0; attempt += 1) {

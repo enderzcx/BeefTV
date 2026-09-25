@@ -69,15 +69,30 @@ function mockIO() {
 describe("buildGenerationTaskNodeResult history reuse", () => {
     test("reuses image:/video:/audio: IndexedDB keys without upload even when the blob URL is expired", async () => {
         const { io, resolveImageCalls, resolveMediaCalls, uploaded, storedVideo, storedAudio, fetched } = mockIO();
-        const image = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Image), task("canvas_image", {
-            images: [{ dataUrl: "blob:http://127.0.0.1/expired-image", storageKey: "image:local-1", width: 64, height: 36 }],
-        }), undefined, io);
-        const video = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Video), task("canvas_video", {
-            video: { dataUrl: "blob:http://127.0.0.1/expired-video", storageKey: "video:local-1", width: 64, height: 36 },
-        }), undefined, io);
-        const audio = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Audio), task("canvas_audio", {
-            audio: { dataUrl: "blob:http://127.0.0.1/expired-audio", storageKey: "audio:local-1", durationMs: 1500 },
-        }), undefined, io);
+        const image = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Image),
+            task("canvas_image", {
+                images: [{ dataUrl: "blob:http://127.0.0.1/expired-image", storageKey: "image:local-1", width: 64, height: 36 }],
+            }),
+            undefined,
+            io,
+        );
+        const video = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Video),
+            task("canvas_video", {
+                video: { dataUrl: "blob:http://127.0.0.1/expired-video", storageKey: "video:local-1", width: 64, height: 36 },
+            }),
+            undefined,
+            io,
+        );
+        const audio = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Audio),
+            task("canvas_audio", {
+                audio: { dataUrl: "blob:http://127.0.0.1/expired-audio", storageKey: "audio:local-1", durationMs: 1500 },
+            }),
+            undefined,
+            io,
+        );
 
         expect(image.metadata?.storageKey).toBe("image:local-1");
         expect(video.metadata?.storageKey).toBe("video:local-1");
@@ -98,15 +113,30 @@ describe("buildGenerationTaskNodeResult history reuse", () => {
         const imageUrl = "http://127.0.0.1:3184/api/resources/image-owned/file";
         const videoUrl = "http://127.0.0.1:3184/api/resources/video-owned/file";
         const audioUrl = "http://127.0.0.1:3184/api/resources/audio-owned/file";
-        const image = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Image), task("canvas_image", {
-            images: [{ dataUrl: imageUrl, width: 64, height: 36 }],
-        }), undefined, io);
-        const video = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Video), task("canvas_video", {
-            video: { url: videoUrl, width: 64, height: 36 },
-        }), undefined, io);
-        const audio = await buildGenerationTaskNodeResult(mediaNode(CanvasNodeType.Audio), task("canvas_audio", {
-            audio: { dataUrl: audioUrl, durationMs: 1500 },
-        }), undefined, io);
+        const image = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Image),
+            task("canvas_image", {
+                images: [{ dataUrl: imageUrl, width: 64, height: 36 }],
+            }),
+            undefined,
+            io,
+        );
+        const video = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Video),
+            task("canvas_video", {
+                video: { url: videoUrl, width: 64, height: 36 },
+            }),
+            undefined,
+            io,
+        );
+        const audio = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Audio),
+            task("canvas_audio", {
+                audio: { dataUrl: audioUrl, durationMs: 1500 },
+            }),
+            undefined,
+            io,
+        );
 
         expect(image.metadata?.storageKey).toBe("resource:image-owned");
         expect(video.metadata?.storageKey).toBe("resource:video-owned");

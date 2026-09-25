@@ -8,16 +8,10 @@ export const MAX_OWNED_ARTIFACT_BYTES = 32 * 1024 * 1024;
 
 export function isWailsNativeShell() {
     if (typeof window === "undefined") return false;
-    return window.location?.protocol === "wails:"
-        || typeof window.go?.main?.DesktopApp?.SaveOwnedMedia === "function"
-        || typeof window.go?.main?.DesktopApp?.SaveOwnedArtifact === "function";
+    return window.location?.protocol === "wails:" || typeof window.go?.main?.DesktopApp?.SaveOwnedMedia === "function" || typeof window.go?.main?.DesktopApp?.SaveOwnedArtifact === "function";
 }
 
-export async function downloadOwnedOrBrowserMedia(options: {
-    fileName: string;
-    resourceId?: string;
-    browserUrl?: string;
-}): Promise<OwnedMediaSaveResult> {
+export async function downloadOwnedOrBrowserMedia(options: { fileName: string; resourceId?: string; browserUrl?: string }): Promise<OwnedMediaSaveResult> {
     const fileName = sanitizeDownloadFileName(options.fileName);
     if (isWailsNativeShell()) {
         const resourceId = options.resourceId?.trim();
@@ -58,10 +52,7 @@ function bytesToBase64(bytes: Uint8Array) {
     return btoa(binary);
 }
 
-export function reportOwnedMediaSave(
-    message: { success: (text: string) => void; error: (text: string) => void },
-    result: Promise<OwnedMediaSaveResult>,
-) {
+export function reportOwnedMediaSave(message: { success: (text: string) => void; error: (text: string) => void }, result: Promise<OwnedMediaSaveResult>) {
     return result
         .then((status) => {
             if (status === "saved" && isWailsNativeShell()) message.success("已保存到所选位置");

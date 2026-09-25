@@ -118,11 +118,7 @@ export function bindCanvasNodeResourceAsset(node: CanvasNodeData, sourceNodes: C
  * Stamp every resource-backed node that still lacks an Asset, using the same
  * owned Asset for the same Resource. Cached unbound siblings stay on the canvas.
  */
-export async function bindMissingCanvasResourceAssets(
-    nodes: CanvasNodeData[],
-    assets: Asset[],
-    ensure: (node: CanvasNodeData) => Promise<{ assetId: string }>,
-): Promise<CanvasNodeData[]> {
+export async function bindMissingCanvasResourceAssets(nodes: CanvasNodeData[], assets: Asset[], ensure: (node: CanvasNodeData) => Promise<{ assetId: string }>): Promise<CanvasNodeData[]> {
     const bound = nodes.map((node) => bindCanvasNodeResourceAsset(node, nodes, assets));
     const missing = canvasNodesMissingResourceAssetBinding(bound);
     if (!missing.length) return bound;

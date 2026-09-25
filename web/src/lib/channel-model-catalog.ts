@@ -70,7 +70,9 @@ export function catalogModelMapping(
     skipGeneration?: boolean;
 } {
     const id = item.id.trim().toLowerCase();
-    const modelType = String(item.modelType || "").trim().toLowerCase();
+    const modelType = String(item.modelType || "")
+        .trim()
+        .toLowerCase();
     const endpoints = (item.supportedEndpointTypes || []).map((value) => value.trim().toLowerCase()).filter(Boolean);
     if (endpoints.some((endpoint) => endpoint === "audio.transcriptions" || endpoint === "audio-transcriptions" || endpoint === "transcriptions")) {
         return { skipGeneration: true };

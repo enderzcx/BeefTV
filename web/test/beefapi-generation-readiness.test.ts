@@ -4,16 +4,7 @@ import { listVideoReferenceModels } from "../src/lib/canvas/canvas-video-regener
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
 import { assertAudioConfig } from "../src/services/api/audio";
 import { assertVideoConfig } from "../src/services/api/video-validation";
-import {
-    channelHasGenerationCredential,
-    createModelChannel,
-    defaultConfig,
-    encodeChannelModel,
-    MANAGED_BEEFAPI_CREDENTIAL_REF,
-    resolveModelRequestConfig,
-    useConfigStore,
-    type AiConfig,
-} from "../src/stores/use-config-store";
+import { channelHasGenerationCredential, createModelChannel, defaultConfig, encodeChannelModel, MANAGED_BEEFAPI_CREDENTIAL_REF, resolveModelRequestConfig, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
 
 function videoCapability(model: string) {
     const capability = defaultModelCapabilityConfig("newapi-channel-2", model);
@@ -117,16 +108,27 @@ describe("managed BeefAPI generation readiness", () => {
         const audioProfile = { model: sharedAudio, capability: "audio" as const, protocol: "openai-audio" as const };
         for (const order of ["manual-first", "beef-first"] as const) {
             const manualEmpty = createModelChannel({
-                id: "manual", name: "工作室渠道", baseUrl: "https://api.example.com", apiKey: "",
-                models: [sharedVideo, sharedAudio], modelProfiles: [videoProfile, audioProfile],
+                id: "manual",
+                name: "工作室渠道",
+                baseUrl: "https://api.example.com",
+                apiKey: "",
+                models: [sharedVideo, sharedAudio],
+                modelProfiles: [videoProfile, audioProfile],
             });
             const manualKeyed = createModelChannel({
-                ...manualEmpty, apiKey: "manual-secret",
+                ...manualEmpty,
+                apiKey: "manual-secret",
             });
             const managed = createModelChannel({
-                id: "beefapi", name: "BeefAPI", pinned: true, baseUrl: "https://enterprise.beefapi.com", apiKey: "",
-                credentialRef: MANAGED_BEEFAPI_CREDENTIAL_REF, hasApiKey: true,
-                models: [sharedVideo, sharedAudio], modelProfiles: [videoProfile, audioProfile],
+                id: "beefapi",
+                name: "BeefAPI",
+                pinned: true,
+                baseUrl: "https://enterprise.beefapi.com",
+                apiKey: "",
+                credentialRef: MANAGED_BEEFAPI_CREDENTIAL_REF,
+                hasApiKey: true,
+                models: [sharedVideo, sharedAudio],
+                modelProfiles: [videoProfile, audioProfile],
             });
             const arrange = (manual: typeof manualEmpty): AiConfig => ({
                 ...defaultConfig,

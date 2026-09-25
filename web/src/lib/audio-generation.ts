@@ -146,7 +146,9 @@ export function normalizeAudioVoiceValue(value: string, model?: string) {
 
 export function normalizeAudioFormatValue(value: string, model?: string) {
     const profile = audioSpeechProfile(model);
-    const trimmed = String(value || "").trim().toLowerCase();
+    const trimmed = String(value || "")
+        .trim()
+        .toLowerCase();
     return profile.formats.some((item) => item.value === trimmed) ? trimmed : profile.defaultFormat;
 }
 
@@ -195,14 +197,17 @@ export function audioVolumeLabel(value: string) {
     return `${Math.round(Number(normalizeAudioVolumeValue(value)) * 100)}%`;
 }
 
-export function resolveAudioSpeechSettings(model: string, values: {
-    audioVoice?: string;
-    audioFormat?: string;
-    audioSpeed?: string;
-    audioPitch?: string;
-    audioVolume?: string;
-    audioInstructions?: string;
-}) {
+export function resolveAudioSpeechSettings(
+    model: string,
+    values: {
+        audioVoice?: string;
+        audioFormat?: string;
+        audioSpeed?: string;
+        audioPitch?: string;
+        audioVolume?: string;
+        audioInstructions?: string;
+    },
+) {
     const profile = audioSpeechProfile(model);
     return {
         audioVoice: normalizeAudioVoiceValue(values.audioVoice || "", model),
@@ -214,14 +219,7 @@ export function resolveAudioSpeechSettings(model: string, values: {
     };
 }
 
-export function audioSettingsSummary(config: {
-    model?: string;
-    audioVoice?: string;
-    audioFormat?: string;
-    audioSpeed?: string;
-    audioPitch?: string;
-    audioVolume?: string;
-}) {
+export function audioSettingsSummary(config: { model?: string; audioVoice?: string; audioFormat?: string; audioSpeed?: string; audioPitch?: string; audioVolume?: string }) {
     const model = config.model || "";
     const profile = audioSpeechProfile(model);
     const parts: string[] = [];
@@ -233,13 +231,16 @@ export function audioSettingsSummary(config: {
     return parts.join(" · ");
 }
 
-export function buildAudioSpeechRequest(config: {
-    model: string;
-    audioVoice?: string;
-    audioFormat?: string;
-    audioSpeed?: string;
-    audioInstructions?: string;
-}, prompt: string) {
+export function buildAudioSpeechRequest(
+    config: {
+        model: string;
+        audioVoice?: string;
+        audioFormat?: string;
+        audioSpeed?: string;
+        audioInstructions?: string;
+    },
+    prompt: string,
+) {
     const model = config.model.trim();
     const profile = audioSpeechProfile(model);
     const settings = resolveAudioSpeechSettings(model, config);

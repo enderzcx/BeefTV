@@ -59,10 +59,7 @@ test("Mac Wails managed enterprise is backend-relayed without a WebView secret",
 
 test("Mac Wails enterprise host without credentialRef is still backend-relayed", () => {
     stubLocation({ protocol: "wails:" });
-    const request = channelRequest(
-        { baseUrl: "https://enterprise.beefapi.com", apiKey: "", apiFormat: "openai" },
-        "https://enterprise.beefapi.com/v1/models",
-    );
+    const request = channelRequest({ baseUrl: "https://enterprise.beefapi.com", apiKey: "", apiFormat: "openai" }, "https://enterprise.beefapi.com/v1/models");
     expectBackendRelay(request, "https://enterprise.beefapi.com/v1/models", "https://enterprise.beefapi.com");
 });
 

@@ -30,13 +30,7 @@ function probe(path: string) {
 
 function makeLongGopFixture(dir: string) {
     const path = join(dir, "fixture-long-gop.mp4");
-    runFfmpeg(dir, [
-        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=24:duration=4",
-        "-c:v", "libx264", "-g", "48", "-keyint_min", "48", "-pix_fmt", "yuv420p",
-        "-output_ts_offset", "1.25",
-        "-an",
-        path,
-    ]);
+    runFfmpeg(dir, ["-f", "lavfi", "-i", "testsrc=size=320x240:rate=24:duration=4", "-c:v", "libx264", "-g", "48", "-keyint_min", "48", "-pix_fmt", "yuv420p", "-output_ts_offset", "1.25", "-an", path]);
     return path;
 }
 
@@ -79,11 +73,7 @@ describe.skipIf(!hasFfmpeg)("remove-audio ffmpeg args on real media", () => {
         const dir = mkdtempSync(join(tmpdir(), "beeftv-segment-tiny-"));
         try {
             const tiny = join(dir, "tiny.mp4");
-            runFfmpeg(dir, [
-                "-f", "lavfi", "-i", "testsrc=size=16x16:rate=25:duration=0.04",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
-                tiny,
-            ]);
+            runFfmpeg(dir, ["-f", "lavfi", "-i", "testsrc=size=16x16:rate=25:duration=0.04", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", tiny]);
             const sourceBytes = readFileSync(tiny);
             expect(sourceBytes.byteLength).toBeLessThan(4096);
             assertUsableSegmentOutput(sourceBytes, "video");

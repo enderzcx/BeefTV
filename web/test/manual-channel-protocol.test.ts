@@ -33,10 +33,7 @@ describe("manual channel protocol defaults", () => {
     test("adding a typed model persists the UI default without overwriting an explicit protocol", () => {
         const existing = [{ model: "kept-response", capability: "text" as const, protocol: "openai-response" as const }];
         const profiles = ensureModelProfilesWithUiDefaults(["kept-response", "gpt-4.1-mini"], existing);
-        expect(profiles).toEqual([
-            expect.objectContaining({ model: "kept-response", protocol: "openai-response" }),
-            expect.objectContaining({ model: "gpt-4.1-mini", capability: "text", protocol: "chat-completion" }),
-        ]);
+        expect(profiles).toEqual([expect.objectContaining({ model: "kept-response", protocol: "openai-response" }), expect.objectContaining({ model: "gpt-4.1-mini", capability: "text", protocol: "chat-completion" })]);
     });
 
     test("manual MiniMax speech and music names are audio, not video", () => {
@@ -53,19 +50,12 @@ describe("manual channel protocol defaults", () => {
     test("manual MiniMax text names stay text", () => {
         expect(inferProtocolCapabilityFromModel("minimax-m2")).toBe("text");
         expect(defaultProtocolForModel("minimax-m2")).toBe("chat-completion");
-        expect(ensureModelProfilesWithUiDefaults(["minimax-m2"], undefined)).toEqual([
-            expect.objectContaining({ model: "minimax-m2", capability: "text", protocol: "chat-completion" }),
-        ]);
+        expect(ensureModelProfilesWithUiDefaults(["minimax-m2"], undefined)).toEqual([expect.objectContaining({ model: "minimax-m2", capability: "text", protocol: "chat-completion" })]);
     });
 
     test("explicit capability is kept when protocol is missing", () => {
-        const profiles = ensureModelProfilesWithUiDefaults(
-            ["custom-voice"],
-            [{ model: "custom-voice", capability: "audio" }],
-        );
-        expect(profiles).toEqual([
-            expect.objectContaining({ model: "custom-voice", capability: "audio", protocol: "openai-audio" }),
-        ]);
+        const profiles = ensureModelProfilesWithUiDefaults(["custom-voice"], [{ model: "custom-voice", capability: "audio" }]);
+        expect(profiles).toEqual([expect.objectContaining({ model: "custom-voice", capability: "audio", protocol: "openai-audio" })]);
         const channel = createModelChannel({
             id: "manual",
             name: "QA",
@@ -94,8 +84,6 @@ describe("manual channel protocol defaults", () => {
         const resolved = resolveModelRequestConfig({ ...defaultConfig, channels: [channel], model: "reasoning::reasoner", textModel: "reasoning::reasoner" }, "reasoning::reasoner");
         expect(resolved.apiFormat).toBe("gemini");
         expect(resolved.interfaceType).toBeUndefined();
-        expect(ensureModelProfilesWithUiDefaults(["reasoner"], [{ model: "reasoner", capability: "text" }], [], "gemini")).toEqual([
-            expect.objectContaining({ model: "reasoner", capability: "text", protocol: undefined }),
-        ]);
+        expect(ensureModelProfilesWithUiDefaults(["reasoner"], [{ model: "reasoner", capability: "text" }], [], "gemini")).toEqual([expect.objectContaining({ model: "reasoner", capability: "text", protocol: undefined })]);
     });
 });

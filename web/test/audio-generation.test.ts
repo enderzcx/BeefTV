@@ -2,15 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { buildNodeConfig } from "@/components/canvas/canvas-node-prompt-panel";
-import {
-    audioSettingsSummary,
-    audioSpeechProfile,
-    buildAudioSpeechRequest,
-    normalizeAudioFormatValue,
-    normalizeAudioSpeedValue,
-    normalizeAudioVoiceValue,
-    resolveAudioSpeechSettings,
-} from "@/lib/audio-generation";
+import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { createModelChannel, defaultConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -51,7 +43,7 @@ function enterpriseConfig(): AiConfig {
 }
 
 describe("enterprise MiniMax speech settings", () => {
-    test("blank speed stays 1 instead of clamping Number(\"\") to the floor", () => {
+    test('blank speed stays 1 instead of clamping Number("") to the floor', () => {
         expect(normalizeAudioSpeedValue("", "minimax-speech-2.8-hd")).toBe("1");
         expect(normalizeAudioSpeedValue("  ", "gpt-4o-mini-tts")).toBe("1");
         expect(resolveAudioSpeechSettings("minimax-speech-2.8-hd", {}).audioSpeed).toBe("1");
@@ -98,13 +90,18 @@ describe("enterprise MiniMax speech settings", () => {
             input: "轻快的钢琴",
             response_format: "mp3",
         });
-        expect(buildAudioSpeechRequest({
-            model: "gpt-4o-mini-tts",
-            audioVoice: "alloy",
-            audioFormat: "wav",
-            audioSpeed: "1.25",
-            audioInstructions: "温暖旁白",
-        }, "hello")).toEqual({
+        expect(
+            buildAudioSpeechRequest(
+                {
+                    model: "gpt-4o-mini-tts",
+                    audioVoice: "alloy",
+                    audioFormat: "wav",
+                    audioSpeed: "1.25",
+                    audioInstructions: "温暖旁白",
+                },
+                "hello",
+            ),
+        ).toEqual({
             model: "gpt-4o-mini-tts",
             input: "hello",
             voice: "alloy",
@@ -125,6 +122,6 @@ describe("enterprise MiniMax speech settings", () => {
     test("prompt panel no longer overlays a fake Seed Audio summary", () => {
         const source = readFileSync(new URL("../src/components/canvas/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
         expect(source).not.toContain("中文 · 24k · wav");
-        expect(source).not.toContain("summaryOverride={localOnly ? \"中文");
+        expect(source).not.toContain('summaryOverride={localOnly ? "中文');
     });
 });
