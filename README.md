@@ -19,7 +19,7 @@ BeefTV 是一个开源的 AI 视频创作工作台，专注三个方向：
 
 ## 产品演示
 
-<video src="./assets/readme/beeftv-demo.mp4" controls muted></video>
+<video src="https://github.com/user-attachments/assets/7acc2ad6-5312-4e22-bf1c-96d05c7cd1e3" controls muted></video>
 
 > 项目仍在快速开发。数据结构和外部接口可能变化，建议在个人本地或可信环境中使用，不要将本地 workspace API 直接暴露到公网。
 
