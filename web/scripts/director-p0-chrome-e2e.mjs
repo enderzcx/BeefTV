@@ -711,7 +711,12 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
         "modal dismissed",
         20000,
     );
-    assert(modalGone, "F6 confirm dialog dismissed after choosing 留在导演台");
+    const remainingModals = modalGone
+        ? []
+        : await cdp.evaluate(`[
+        ...document.querySelectorAll('.ant-modal-confirm')
+    ].map((modal) => ({ text: (modal.innerText || '').slice(0, 300), className: modal.className, opacity: getComputedStyle(modal).opacity }))`);
+    assert(modalGone, "F6 confirm dialog dismissed after choosing 留在导演台", JSON.stringify(remainingModals));
 
     await sleep(1000);
     const stillOpen = await cdp.evaluate(`document.querySelectorAll('.director-viewport-shell').length`);
