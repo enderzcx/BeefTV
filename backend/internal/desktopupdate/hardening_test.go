@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStagingNeverDeletesAnotherDownload(t *testing.T) {
@@ -111,4 +112,42 @@ func TestRejectWindowsAliasesAndOverflowVersions(t *testing.T) {
 	if err := decodeJSONStrict([]byte(`{} {}`), &dst); err == nil {
 		t.Fatal("trailing JSON accepted")
 	}
+}
+
+func TestWindowsInstallRejectsCollocatedUserData(t *testing.T) {
+	root := t.TempDir()
+	if err := WriteWindowsLayout(root, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	custom := filepath.Join(root, pluginDirName, "custom.beeftv-plugin")
+	if err := os.WriteFile(custom, []byte("uploaded"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := Target{Platform: "windows-amd64", Path: filepath.Join(root, windowsExeName)}
+	e := &Engine{dataDir: root, locate: func() (Target, error) { return target, nil }}
+	if err := e.prepareAndStartHelper(context.Background(), &stagedUpdate{platform: "windows-amd64"}); err == nil || !strings.Contains(err.Error(), "数据目录") {
+		t.Fatalf("err=%v", err)
+	}
+	data, err := os.ReadFile(custom)
+	if err != nil || string(data) != "uploaded" {
+		t.Fatal("custom plugin changed")
+	}
+}
+
+func TestHelperExitWhileParentAliveMakesInstallRetryable(t *testing.T) {
+	done := make(chan error, 1)
+	e := &Engine{state: UpdateState{Status: StatusInstalling}, helperDone: done}
+	e.monitorHelper()
+	done <- errors.New("等待应用退出超时")
+	deadline := time.Now().Add(time.Second)
+	for e.Status().Status == StatusInstalling && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if e.Status().Status != StatusError {
+		t.Fatal("install remained stuck")
+	}
+	if err := e.begin(actionCheck); err != nil {
+		t.Fatalf("retry blocked: %v", err)
+	}
+	e.end()
 }

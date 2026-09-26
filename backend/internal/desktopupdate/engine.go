@@ -78,6 +78,7 @@ type Engine struct {
 	verified        *verifiedUpdate
 	staged          *stagedUpdate
 	helperProc      *os.Process
+	helperDone      <-chan error
 	dataDir         string
 }
 
@@ -329,28 +330,45 @@ func (e *Engine) InstallUpdate(ctx context.Context) error {
 			return err
 		}
 	}
-	e.releaseHelper()
+	e.monitorHelper()
 	return nil
 }
 
 func (e *Engine) killHelper() {
 	e.mu.Lock()
 	proc := e.helperProc
+	done := e.helperDone
 	e.helperProc = nil
+	e.helperDone = nil
 	e.mu.Unlock()
 	if proc != nil {
 		_ = proc.Kill()
-		_, _ = proc.Wait()
+		if done != nil {
+			<-done
+		}
 	}
 }
 
-func (e *Engine) releaseHelper() {
+func (e *Engine) monitorHelper() {
 	e.mu.Lock()
-	proc := e.helperProc
-	e.helperProc = nil
+	done := e.helperDone
 	e.mu.Unlock()
-	if proc != nil {
-		_ = proc.Release()
+	if done != nil {
+		go func() {
+			<-done
+			// Normally this UI process has exited before the helper completes.
+			// If still alive, quit was vetoed or the helper failed: permit retry.
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if e.helperDone == done {
+				e.helperProc = nil
+				e.helperDone = nil
+				if e.state.Status == StatusInstalling {
+					e.state.Status = StatusError
+					e.state.Error = "应用未能退出或安装程序已停止，请重试更新。"
+				}
+			}
+		}()
 	}
 }
 

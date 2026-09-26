@@ -187,15 +187,20 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 		return err
 	}
 	if e.dataDir != "" {
-		dataDir, err := filepath.Abs(e.dataDir)
+		dataDir, err := physicalPath(e.dataDir)
 		if err != nil {
 			return err
 		}
-		if resolved, err := filepath.EvalSymlinks(dataDir); err == nil {
-			dataDir = resolved
+		installRoot := target.Path
+		if strings.HasPrefix(target.Platform, "windows") || strings.HasPrefix(staged.platform, "windows") {
+			installRoot = filepath.Dir(target.Path)
 		}
-		if withinRoot(target.Path, dataDir) || (target.PluginDir != "" && withinRoot(target.PluginDir, dataDir)) {
-			return fmt.Errorf("数据目录位于程序包内，请先将数据移到独立目录")
+		installRoot, err = physicalPath(installRoot)
+		if err != nil {
+			return err
+		}
+		if withinRoot(installRoot, dataDir) || withinRoot(dataDir, installRoot) {
+			return fmt.Errorf("数据目录与程序目录重叠，请先将数据移到独立目录")
 		}
 	}
 	parentPID := e.parentPID
@@ -283,9 +288,37 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 	}
 	e.mu.Lock()
 	e.helperProc = cmd.Process
+	done := make(chan error, 1)
+	e.helperDone = done
 	e.mu.Unlock()
+	go func() { done <- cmd.Wait() }()
 	prepared = true
 	return nil
+}
+
+// Resolve existing ancestors too: a not-yet-created data directory may sit
+// under a symlink (notably /var on macOS).
+func physicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	parent := filepath.Dir(abs)
+	if parent == abs {
+		return "", err
+	}
+	resolved, err = physicalPath(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, filepath.Base(abs)), nil
 }
 
 func helperFileName() string {

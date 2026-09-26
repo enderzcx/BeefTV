@@ -81,6 +81,9 @@ func TestSpawnedHelperReplacesInstall(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Remove(filepath.Join(staged, windowsExeName)); err != nil {
+			t.Fatal(err)
+		}
 		if err := copyFile(exe, filepath.Join(staged, windowsExeName)); err != nil {
 			t.Fatal(err)
 		}
