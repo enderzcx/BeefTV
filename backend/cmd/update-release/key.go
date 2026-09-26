@@ -75,10 +75,18 @@ func cmdPublicKey(args []string, stdout, stderr io.Writer) error {
 }
 
 func writeKeyFile(path, contents string, mode os.FileMode) error {
-	if err := os.WriteFile(path, []byte(contents+"\n"), mode); err != nil {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
 		return err
 	}
-	return os.Chmod(path, mode)
+	defer file.Close()
+	if _, err := file.WriteString(contents + "\n"); err != nil {
+		return err
+	}
+	if err := file.Chmod(mode); err != nil {
+		return err
+	}
+	return file.Sync()
 }
 
 func loadPrivateKey(path string) (ed25519.PrivateKey, error) {

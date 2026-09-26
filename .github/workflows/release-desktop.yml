@@ -13,11 +13,10 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   GOTOOLCHAIN: local
-  GH_TOKEN: ${{ github.token }}
   BEEFTV_UPDATER_FEED_URL: https://github.com/glanderness/BeefTV/releases/latest/download/desktop-update.json
   UPDATER_DOWNLOAD_BASE: https://github.com/glanderness/BeefTV/releases/download
 
@@ -26,6 +25,10 @@ jobs:
     name: Validate and open draft
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
       version: ${{ steps.meta.outputs.version }}
       commit: ${{ steps.meta.outputs.commit }}
@@ -91,6 +94,7 @@ jobs:
 
           greater_args=()
           latest=""
+          release_tags="$(gh release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName')"
           while IFS= read -r tag; do
             [[ -z "$tag" ]] && continue
             if go run ./cmd/update-release validate-version --version "$tag" >/dev/null 2>&1; then
@@ -98,7 +102,7 @@ jobs:
                 latest="$tag"
               fi
             fi
-          done < <(gh release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' || true)
+          done <<< "$release_tags"
           if [[ -n "$latest" ]]; then
             greater_args+=(--greater-than "$latest")
           fi
@@ -130,6 +134,12 @@ jobs:
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release gate dependencies
+        run: |
+          sh plugin-packages/build-packages.sh
+          cd web
+          bun install --frozen-lockfile
 
       - name: Local release contract gate
         run: ./scripts/verify-beeftv-local-release.sh
@@ -229,21 +239,22 @@ jobs:
             --input "$input" \
             --output "../dist/BeefTV-${VERSION}-${PLATFORM}.zip"
 
-      - name: Upload zip to draft release
-        env:
-          VERSION: ${{ needs.preflight.outputs.version }}
-          PLATFORM: ${{ matrix.platform }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$VERSION" "dist/BeefTV-${VERSION}-${PLATFORM}.zip"
+      - name: Store platform zip for publication
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: dist/BeefTV-${{ needs.preflight.outputs.version }}-${{ matrix.platform }}.zip
+          if-no-files-found: error
 
   publish:
     name: Sign feed and publish
     needs: [preflight, build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     env:
+      GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.preflight.outputs.version }}
       COMMIT: ${{ needs.preflight.outputs.commit }}
       BEEFTV_UPDATER_PRIVATE_KEY: ${{ secrets.BEEFTV_UPDATER_PRIVATE_KEY }}
@@ -257,11 +268,16 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Download draft platform zips
+      - name: Retrieve completed platform builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist
+
+      - name: Check complete platform set
         run: |
           set -euo pipefail
-          mkdir -p dist
-          gh release download "$VERSION" --dir dist --pattern "BeefTV-${VERSION}-*.zip"
           mapfile -t zips < <(find dist -maxdepth 1 -name "BeefTV-${VERSION}-*.zip" | LC_ALL=C sort)
           if [[ "${#zips[@]}" -ne 3 ]]; then
             echo "Expected 3 platform zips on draft $VERSION before signing desktop-update.json, found ${#zips[@]}."
@@ -291,6 +307,6 @@ jobs:
       - name: Publish signed release
         run: |
           set -euo pipefail
-          gh release upload "$VERSION" "dist/desktop-update.json"
-          gh release edit "$VERSION" --draft=false
+          gh release upload "$VERSION" "dist/desktop-update.json" dist/BeefTV-"$VERSION"-*.zip
+          gh release edit "$VERSION" --draft=false --latest
           echo "Published $VERSION. Clients fetch $BEEFTV_UPDATER_FEED_URL only after this point."

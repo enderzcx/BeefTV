@@ -85,14 +85,14 @@ go run ./cmd/update-release gen-key \
 
 在 `glanderness/BeefTV` 的 `main` 上手动运行 `Release desktop`。`confirm_version` 必须等于 `VERSION`。`CHANGELOG.md` 里对应的 `## vX.Y.Z` 会同时成为 GitHub Release 说明和清单 `notes`。
 
-工作流只申请 `contents: write`。步骤：
+工作流默认只读；仅创建草稿和最终发布的任务申请 `contents: write`。构建任务不持有发布写权限或签名私钥。步骤：
 
 1. 校验稳定版本、唯一 tag、密钥和 changelog。
 2. 创建 **draft** Release。
 3. 用现有脚本构建 macOS arm64、macOS amd64、Windows amd64，并注入 FeedURL 与公钥。
-4. 按固定文件名打包 zip 并上传到 draft。
+4. 按固定文件名打包 zip 并保存为 Actions 构建产物。
 5. 三个包都齐了之后才签名 `desktop-update.json`。
-6. 上传清单后，把 draft 发布为正式版。此时 `/releases/latest/download/desktop-update.json` 才可访问。
+6. 把所有包和清单上传到 draft 后，发布并明确标记为 latest。此时更新源才指向这个完整版本。
 
 固定文件名：
 
@@ -117,4 +117,8 @@ go run ./cmd/update-release package --platform windows-amd64 --input cmd/desktop
 
 不要覆盖或删除已经发布的 zip 和清单。要收回有问题的版本，发布一个更高的稳定号。已经更新成功的用户，不会因为删除 GitHub Release 而回到旧包。
 
-`/releases/latest` 按最近一次正式发布计算。始终按时间顺序发布递增的稳定版本。
+流水线显式标记 latest，且拒绝非递增稳定版本。不要手动把旧版本标记为 latest。
+
+客户端在退出前重新验包，并在程序所在磁盘准备安装文件。替换只使用同磁盘重命名，安装锁防止多个实例同时替换。安装或进程启动失败时尝试恢复旧程序。成功启动后仍保留程序旁 `.beeftv-update-*` 目录中的备份和恢复记录；确认新版本正常后可清理该次目录。
+
+启动了进程不等于 SQLite 迁移或界面正常，因此不会在新进程启动后自动降级。恢复旧程序前需确认数据库兼容，必要时使用匹配的数据备份。此更新器不会复制或还原全部用户素材。

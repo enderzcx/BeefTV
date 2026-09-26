@@ -203,7 +203,7 @@ zip 里的布局：
 https://github.com/glanderness/BeefTV/releases/latest/download/desktop-update.json
 ```
 
-只有**已经发布**（非 draft）的 Release 会出现在 `/releases/latest`。流水线先建 draft，三个系统包都上传并签名后，才写入 `desktop-update.json`，最后才把 draft 发布出去。这样不会出现「latest 已经切过去，但清单还没有」的窗口。
+流水线先建 draft，三个平台构建任务把包保存为 Actions 产物。发布任务收齐三个包后生成签名清单，把包和清单一起上传到 draft，最后发布并明确标记 latest。失败的构建不会切换客户端更新源。
 
 在 `glanderness/BeefTV` 的 `main` 上手动运行 `.github/workflows/release-desktop.yml`。输入的 `confirm_version` 必须和 `VERSION` 一致。`CHANGELOG.md` 必须有对应的 `## vX.Y.Z` 段落，这段文字会同时成为 GitHub Release 说明和清单里的 `notes`。
 
@@ -241,6 +241,8 @@ go run ./cmd/update-release sign \
 ```
 
 ### 回滚
+
+客户端在退出前校验并把更新准备到程序所在磁盘；无写入权限、磁盘空间不足或签名错误时保留当前运行的应用。替换/启动失败会尝试恢复旧程序。程序旁的 `.beeftv-update-*` 目录保留旧程序和 `result.json` 恢复记录，确认新版本正常后才手动清理。已启动的新进程不会自动降级，以免把迁移后的数据库交给旧程序；恢复旧程序时需另行确认数据库兼容或还原匹配的数据备份。
 
 已经发布的版本不能收回。已经更新成功的用户，不会因为删除 GitHub Release 而回到旧包。
 
