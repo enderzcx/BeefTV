@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { DesktopRuntimeBinding, DesktopUpdateState } from "@/services/desktop-runtime";
+import { prepareDesktopEditorsForUpdate, registerDesktopUpdatePreparation } from "@/services/desktop-update-preparation";
 import {
     createDesktopUpdateController,
     desktopUpdateActionLabel,
@@ -16,6 +17,66 @@ import {
 
 afterEach(() => {
     resetSharedDesktopUpdateController();
+});
+
+test("an editor save refusal prevents native installation and retries after saving", async () => {
+    let unsaved = true;
+    const unregister = registerDesktopUpdatePreparation(() => {
+        if (unsaved) throw new Error("剪辑内容尚未保存完成。");
+    });
+    const mock = mockBinding(state({ status: "ready", latestVersion: "v1.5.2" }));
+    const controller = createDesktopUpdateController({
+        getBinding: () => mock.binding,
+        isDesktopRuntime: () => true,
+        persistWorkspace: prepareDesktopEditorsForUpdate,
+        scheduler: { interval: () => () => {} },
+    });
+    try {
+        await controller.start();
+        await controller.install();
+        expect(mock.calls.install).toBe(0);
+        expect(controller.getSnapshot().state.error).toBe("剪辑内容尚未保存完成。");
+        unsaved = false;
+        await controller.retry();
+        expect(mock.calls.install).toBe(1);
+    } finally {
+        unregister();
+        controller.dispose();
+    }
+});
+
+test("late progress polling cannot overwrite a completed download", async () => {
+    const mock = mockBinding(state({ status: "available", latestVersion: "v1.5.2" }));
+    mock.holdDownload();
+    let tick: (() => void) | undefined;
+    const controller = createDesktopUpdateController({
+        getBinding: () => mock.binding,
+        isDesktopRuntime: () => true,
+        persistWorkspace: async () => {},
+        scheduler: {
+            interval: (callback) => {
+                tick = callback;
+                return () => {};
+            },
+        },
+    });
+    const unsubscribe = controller.subscribe(() => {});
+    try {
+        await controller.start();
+        const download = controller.download();
+        const oldPoll = deferred<DesktopUpdateState>();
+        mock.binding.UpdateStatus = () => oldPoll.promise;
+        tick!();
+        mock.finishDownload(state({ status: "ready", latestVersion: "v1.5.2" }));
+        await download;
+        oldPoll.resolve(state({ status: "downloading", latestVersion: "v1.5.2" }));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(controller.getSnapshot().state.status).toBe("ready");
+    } finally {
+        unsubscribe();
+        controller.dispose();
+    }
 });
 
 function deferred<T>() {
@@ -273,7 +334,7 @@ describe("desktop update controller", () => {
         await controller.install();
         expect(mock.calls.install).toBe(0);
         expect(view.latest().state.status).toBe("error");
-        expect(view.latest().state.error).toBe("画布没有保存完成，更新没有开始。请稍后再试。");
+        expect(view.latest().state.error).toBe("内容没有保存完成，更新没有开始。请稍后再试。");
         view.stop();
     });
 

@@ -1,4 +1,5 @@
 import { DESKTOP_UPDATE_STATUSES, getDesktopAppBinding, type DesktopRuntimeBinding, type DesktopUpdateState, type DesktopUpdateStatus } from "@/services/desktop-runtime";
+import { prepareDesktopEditorsForUpdate } from "@/services/desktop-update-preparation";
 
 export type { DesktopUpdateState, DesktopUpdateStatus };
 
@@ -171,8 +172,11 @@ function readBuildVersion(): string {
 }
 
 export async function persistWorkspaceBeforeDesktopInstall() {
+    await prepareDesktopEditorsForUpdate();
     const [{ flushCanvasStorePersistence }, { flushAssetStorePersistence }, { flushModelConfig }] = await Promise.all([import("@/stores/canvas/use-canvas-store"), import("@/stores/use-asset-store"), import("@/services/model-config-repository")]);
     await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence(), flushModelConfig()]);
+    const { useSyncProgressStore } = await import("@/stores/use-sync-progress-store");
+    if (useSyncProgressStore.getState().isAnySyncing()) throw new Error("仍有内容正在保存，请稍后再更新。");
 }
 
 const defaultScheduler: DesktopUpdateScheduler = {
@@ -198,6 +202,7 @@ export function createDesktopUpdateController(options: DesktopUpdateControllerOp
     let startPromise: Promise<void> | null = null;
     let stopPoll: (() => void) | null = null;
     let pollGeneration = 0;
+    let stateRevision = 0;
     let disposed = false;
     const listeners = new Set<(snapshot: DesktopUpdateSnapshot) => void>();
 
@@ -217,6 +222,7 @@ export function createDesktopUpdateController(options: DesktopUpdateControllerOp
     };
 
     const apply = (next: DesktopUpdateState, extras?: { persistBusy?: boolean; actionBusy?: boolean }) => {
+        stateRevision += 1;
         state = {
             ...next,
             currentVersion: next.currentVersion || fallbackVersion,
@@ -247,9 +253,10 @@ export function createDesktopUpdateController(options: DesktopUpdateControllerOp
     const refreshStatus = async () => {
         const binding = getBinding();
         if (!hasDesktopUpdateBinding(binding)) return;
+        const revision = stateRevision;
         try {
             const next = parseDesktopUpdateState(await binding.UpdateStatus(), state.currentVersion || fallbackVersion);
-            if (disposed) return;
+            if (disposed || revision !== stateRevision) return;
             apply(next);
         } catch {
             // Polling is best-effort; keep the last known snapshot until a user action finishes.
@@ -333,13 +340,13 @@ export function createDesktopUpdateController(options: DesktopUpdateControllerOp
         emit();
         try {
             await persistWorkspace();
-        } catch {
+        } catch (error) {
             persistBusy = false;
             apply(
                 {
                     ...state,
                     status: "error",
-                    error: "画布没有保存完成，更新没有开始。请稍后再试。",
+                    error: /[\u4e00-\u9fff]/u.test(bindingErrorMessage(error)) ? bindingErrorMessage(error) : "内容没有保存完成，更新没有开始。请稍后再试。",
                 },
                 { persistBusy: false, actionBusy: false },
             );
