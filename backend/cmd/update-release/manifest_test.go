@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -199,6 +200,38 @@ func TestPrintLdflags(t *testing.T) {
 
 func packageNamed(t *testing.T, dir, platform, version string) string {
 	t.Helper()
+	// Signing validates the archive independently of the build host. Set Unix
+	// modes in the fixture itself so the macOS contract is also tested on Windows.
+	out := filepath.Join(dir, artifactFileName(version, platform))
+	if platform == platformDarwinARM64 || platform == platformDarwinAMD64 {
+		file, err := os.Create(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer := zip.NewWriter(file)
+		for name, body := range map[string]string{
+			"BeefTV.app/Contents/MacOS/BeefTV":                                 "binary",
+			"BeefTV.app/Contents/Info.plist":                                   "<plist></plist>",
+			"BeefTV.app/Contents/Resources/plugin-packages/core.beeftv-plugin": "plugin",
+		} {
+			header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+			header.SetMode(0o755)
+			entry, err := writer.CreateHeader(header)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := entry.Write([]byte(body)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
 	input := filepath.Join(dir, platform+"-src")
 	if err := os.MkdirAll(input, 0o755); err != nil {
 		t.Fatal(err)
@@ -209,7 +242,6 @@ func packageNamed(t *testing.T, dir, platform, version string) string {
 	case platformWindowsAMD64:
 		writeFakeWindowsBin(t, input)
 	}
-	out := filepath.Join(dir, artifactFileName(version, platform))
 	if err := packageBundle(platform, input, out); err != nil {
 		t.Fatal(err)
 	}

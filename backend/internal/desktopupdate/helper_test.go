@@ -6,11 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestMain(m *testing.M) {
+	// A copied test executable is a real PE launch target for the Windows
+	// replacement test, without recursively running this test suite.
+	if os.Getenv("BEEFTV_UPDATER_TEST_LAUNCH") == "1" && len(os.Args) == 1 {
+		os.Exit(0)
+	}
 	if done, err := HandleHelperCommand(os.Args); done {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -60,6 +66,29 @@ func TestSpawnedHelperReplacesInstall(t *testing.T) {
 		ResultPath:     filepath.Join(work, "result.json"),
 		WaitTimeoutSec: 5,
 	}
+	if runtime.GOOS == "windows" {
+		if err := WriteWindowsLayout(oldDir, "OLD"); err != nil {
+			t.Fatal(err)
+		}
+		// Remove the Darwin fixture before validating the Windows archive layout.
+		if err := os.RemoveAll(filepath.Join(staged, appBundleName)); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteWindowsLayout(staged, "NEW"); err != nil {
+			t.Fatal(err)
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := copyFile(exe, filepath.Join(staged, windowsExeName)); err != nil {
+			t.Fatal(err)
+		}
+		req.Platform = "windows-amd64"
+		req.TargetPath = filepath.Join(oldDir, windowsExeName)
+		req.BackupPath = filepath.Join(root, "backup")
+		t.Setenv("BEEFTV_UPDATER_TEST_LAUNCH", "1")
+	}
 	encoded, err := json.Marshal(req)
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +102,9 @@ func TestSpawnedHelperReplacesInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	helperPath := filepath.Join(work, "BeefTV-update-helper")
+	if runtime.GOOS == "windows" {
+		helperPath += ".exe"
+	}
 	if err := copyFile(exe, helperPath); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +117,11 @@ func TestSpawnedHelperReplacesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helper: %v\n%s", err, out)
 	}
-	got, err := os.ReadFile(filepath.Join(req.TargetPath, "Contents", "MacOS", "BeefTV"))
+	installed := filepath.Join(req.TargetPath, "Contents", "MacOS", "BeefTV")
+	if runtime.GOOS == "windows" {
+		installed = filepath.Join(oldDir, pluginDirName, "official.beeftv-plugin")
+	}
+	got, err := os.ReadFile(installed)
 	if err != nil {
 		t.Fatal(err)
 	}

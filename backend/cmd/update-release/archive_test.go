@@ -11,6 +11,9 @@ import (
 )
 
 func TestPackageDarwinLayoutAndModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("macOS packaging requires a filesystem that preserves Unix executable modes")
+	}
 	root := t.TempDir()
 	app := writeFakeDarwinApp(t, filepath.Join(root, "BeefTV.app"))
 	outside := filepath.Join(root, "outside.txt")

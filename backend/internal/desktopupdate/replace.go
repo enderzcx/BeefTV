@@ -1,6 +1,7 @@
 package desktopupdate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,28 +65,43 @@ func swapWindows(req HelperRequest) error {
 		backedUpPlugins = true
 	}
 	if err := retryIO(func() error { return renamePath(stagedExe, req.TargetPath) }); err != nil {
-		restoreWindows(req, backedUpPlugins)
-		return err
+		return errors.Join(err, restoreWindows(req, backedUpPlugins))
 	}
 	if pathExists(stagedPlugins) {
 		if err := retryIO(func() error { return renamePath(stagedPlugins, targetPlugins) }); err != nil {
-			restoreWindows(req, backedUpPlugins)
-			return err
+			return errors.Join(err, restoreWindows(req, backedUpPlugins))
 		}
 	}
 	return nil
 }
 
-func restoreWindows(req HelperRequest, pluginsBackedUp bool) {
+func restoreWindows(req HelperRequest, pluginsBackedUp bool) error {
 	targetDir := filepath.Dir(req.TargetPath)
-	_ = os.Remove(req.TargetPath)
-	_ = os.RemoveAll(filepath.Join(targetDir, pluginDirName))
-	_ = retryIO(func() error { return renamePath(filepath.Join(req.BackupPath, windowsExeName), req.TargetPath) })
-	if pluginsBackedUp {
-		_ = retryIO(func() error {
-			return renamePath(filepath.Join(req.BackupPath, pluginDirName), filepath.Join(targetDir, pluginDirName))
-		})
+	backupExe := filepath.Join(req.BackupPath, windowsExeName)
+	var failures []error
+	if pathExists(backupExe) {
+		if err := retryIO(func() error {
+			if err := os.Remove(req.TargetPath); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			return renamePath(backupExe, req.TargetPath)
+		}); err != nil {
+			failures = append(failures, fmt.Errorf("还原程序失败: %w", err))
+		}
+	} else if !pathExists(req.TargetPath) {
+		failures = append(failures, fmt.Errorf("没有可还原的程序备份"))
 	}
+	if pluginsBackedUp {
+		if err := retryIO(func() error {
+			if err := os.RemoveAll(filepath.Join(targetDir, pluginDirName)); err != nil {
+				return err
+			}
+			return renamePath(filepath.Join(req.BackupPath, pluginDirName), filepath.Join(targetDir, pluginDirName))
+		}); err != nil {
+			failures = append(failures, fmt.Errorf("还原官方插件失败: %w", err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func RestoreBackup(req HelperRequest) error {
@@ -104,18 +120,7 @@ func RestoreBackup(req HelperRequest) error {
 		}
 		return retryIO(func() error { return renamePath(req.BackupPath, req.TargetPath) })
 	case strings.HasPrefix(req.Platform, "windows"):
-		backupExe := filepath.Join(req.BackupPath, windowsExeName)
-		if !pathExists(backupExe) {
-			if pathExists(req.TargetPath) {
-				return nil
-			}
-			return fmt.Errorf("没有可还原的备份")
-		}
-		restoreWindows(req, pathExists(filepath.Join(req.BackupPath, pluginDirName)))
-		if !pathExists(req.TargetPath) {
-			return fmt.Errorf("还原安装失败")
-		}
-		return nil
+		return restoreWindows(req, pathExists(filepath.Join(req.BackupPath, pluginDirName)))
 	default:
 		return ErrUnsupported
 	}

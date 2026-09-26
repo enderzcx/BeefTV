@@ -135,6 +135,32 @@ func TestWindowsSwapPreservesNeighborFilesAndUserPlugins(t *testing.T) {
 	}
 }
 
+func TestWindowsRestoreRetriesPluginsAfterExecutableWasRestored(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "installed")
+	backup := filepath.Join(root, "backup")
+	if err := WriteWindowsLayout(target, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteWindowsLayout(backup, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(backup, windowsExeName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, pluginDirName, "official.beeftv-plugin"), []byte("NEW"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := HelperRequest{Platform: "windows-amd64", TargetPath: filepath.Join(target, windowsExeName), BackupPath: backup}
+	if err := RestoreBackup(req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, pluginDirName, "official.beeftv-plugin"))
+	if err != nil || string(got) != "official-OLD" {
+		t.Fatalf("plugin not restored: %q, %v", got, err)
+	}
+}
+
 func TestUnicodeAndSpacesPathsRoundTrip(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "BeefTV 更新 测试")
 	oldDir := filepath.Join(root, "current")
