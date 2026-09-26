@@ -79,7 +79,7 @@ export function useDirectorSaveCoordinator(input: { sceneId: string | null; init
         });
 
         const unregisterUpdate = registerDesktopUpdatePreparation(async () => {
-            if (!await coordinator.flushLatest()) throw new Error("导演工作台尚未保存完成。");
+            if (!(await coordinator.flushLatest())) throw new Error("导演工作台尚未保存完成。");
         });
 
         return () => {
