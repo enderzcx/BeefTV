@@ -298,6 +298,11 @@ async function connectCdp(cdpPort) {
             const el = ${locatorExpression};
             if (!(el instanceof HTMLElement)) return null;
             el.scrollIntoView({ block: "center", inline: "center" });
+            // A temporarily stable center is not enough while an ancestor modal
+            // is entering: compositor hit testing can still use the previous frame.
+            for (let ancestor = el; ancestor; ancestor = ancestor.parentElement) {
+                if (ancestor.getAnimations().some((animation) => animation.playState === "running" || animation.pending)) return null;
+            }
             const rect = el.getBoundingClientRect();
             const style = getComputedStyle(el);
             if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none" || Number(style.opacity) <= 0 || el.matches(":disabled") || el.getAttribute("aria-disabled") === "true") return null;
@@ -324,7 +329,10 @@ async function connectCdp(cdpPort) {
             console.log(`      (click target not interactable: ${label})`);
             return false;
         }
-        const point = { x: box.x, y: box.y, button: "left" };
+        await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+        const finalBox = await readInteractiveBox();
+        if (!finalBox || finalBox.x !== box.x || finalBox.y !== box.y) return false;
+        const point = { x: finalBox.x, y: finalBox.y, button: "left" };
         await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, buttons: 0 });
         await send("Input.dispatchMouseEvent", { type: "mousePressed", ...point, buttons: 1, clickCount: 1 });
         await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, buttons: 0, clickCount: 1 });
@@ -704,12 +712,18 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
         window.__directorCancelEvents = [];
         for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, (event) => {
             const button = event.target instanceof Element ? event.target.closest('button') : null;
-            if ((button?.textContent || '').trim() === '留在导演台') window.__directorCancelEvents.push({ type, trusted: event.isTrusted });
+            window.__directorCancelEvents.push({ type, trusted: event.isTrusted, button: (button?.textContent || '').trim(), target: event.target instanceof Element ? event.target.tagName : '', x: event.clientX, y: event.clientY });
         }, true);
         return true;
     })()`);
     const stayClicked = await cdp.click(".ant-modal-confirm .ant-modal-confirm-btns button:first-child");
     if (!stayClicked) throw new Error("F: 留在导演台 button not clickable");
+    const cancelEvents = await cdp.evaluate(`window.__directorCancelEvents`);
+    assert(
+        cancelEvents.some((event) => event.type === "click" && event.trusted && event.button === "留在导演台"),
+        "F6a trusted click reaches stay button",
+        JSON.stringify(cancelEvents),
+    );
     const modalGone = await cdp.poll(
         `![...document.querySelectorAll('.ant-modal-confirm')].some((modal) => {
             const rect = modal.getBoundingClientRect();
