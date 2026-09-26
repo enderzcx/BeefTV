@@ -25,6 +25,7 @@ func (a *DesktopApp) updater() *desktopupdate.Engine {
 	}
 	engine := desktopupdate.New(desktopupdate.Host{
 		CurrentVersion: buildinfo.Current().Version,
+		DataDir:        a.dataDir,
 		Quit: func() error {
 			a.mu.RLock()
 			ctx := a.wailsCtx

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 )
@@ -35,7 +36,7 @@ func decodeJSONStrict(data []byte, dest any) error {
 	if err := decoder.Decode(dest); err != nil {
 		return err
 	}
-	if decoder.More() {
+	if err := decoder.Decode(new(any)); err != io.EOF {
 		return fmt.Errorf("trailing JSON")
 	}
 	return nil

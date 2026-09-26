@@ -18,7 +18,7 @@ func TestVerifyEnvelopeRejectsInvalidSignatureAndTamper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := TestPayload("v1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "notes")
+	payload := testPayload("v1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "notes")
 	raw, err := SignEnvelope(priv, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestVerifyEnvelopeRejectsUnstableVersionAndShortCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := priv.Public().(ed25519.PublicKey)
-	payload := TestPayload("1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
+	payload := testPayload("1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
 	raw, err := SignEnvelope(priv, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestVerifyEnvelopeRejectsUnstableVersionAndShortCommit(t *testing.T) {
 	if _, _, err := verifyEnvelope(raw, pub); err == nil {
 		t.Fatal("expected unstable version to fail")
 	}
-	payload = TestPayload("v1.6.0-beta.1", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
+	payload = testPayload("v1.6.0-beta.1", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
 	raw, err = SignEnvelope(priv, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestVerifyEnvelopeRejectsUnstableVersionAndShortCommit(t *testing.T) {
 	if _, _, err := verifyEnvelope(raw, pub); err == nil {
 		t.Fatal("expected prerelease to fail")
 	}
-	payload = TestPayload("v1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
+	payload = testPayload("v1.6.0", "darwin-arm64", "https://example.com/a.zip", strings.Repeat("ab", 32), 12, "")
 	payload.Commit = "abc123"
 	raw, err = SignEnvelope(priv, payload)
 	if err != nil {

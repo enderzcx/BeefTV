@@ -2,6 +2,8 @@ package desktopupdate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -91,6 +93,12 @@ func RunHelperRequest(req HelperRequest) error {
 		result.Error = err.Error()
 		return err
 	}
+	unlock, err := lockInstall(filepath.Join(filepath.Dir(req.TargetPath), ".BeefTV.update.lock"))
+	if err != nil {
+		result.Error = "已有更新正在安装"
+		return err
+	}
+	defer unlock()
 	if req.PreparedPath != "" {
 		if err := os.WriteFile(req.PreparedPath, []byte("ok\n"), 0o600); err != nil {
 			result.Error = err.Error()
@@ -118,6 +126,7 @@ func RunHelperRequest(req HelperRequest) error {
 		if restoreErr := RestoreBackup(req); restoreErr == nil && pathExists(req.TargetPath) {
 			result.Restored = true
 			result.Status = "rolled_back"
+			result.Launched = relaunchInstall(req) == nil
 		}
 		return err
 	}
@@ -135,7 +144,7 @@ func RunHelperRequest(req HelperRequest) error {
 	result.Launched = true
 	result.Status = "launched"
 	result.Phase = "done"
-	_ = os.RemoveAll(backupRoot(req))
+	// Retain recovery files: process creation is not proof of healthy startup.
 	return nil
 }
 
@@ -177,12 +186,46 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 	if err != nil {
 		return err
 	}
+	if e.dataDir != "" {
+		dataDir, err := filepath.Abs(e.dataDir)
+		if err != nil {
+			return err
+		}
+		if resolved, err := filepath.EvalSymlinks(dataDir); err == nil {
+			dataDir = resolved
+		}
+		if withinRoot(target.Path, dataDir) || (target.PluginDir != "" && withinRoot(target.PluginDir, dataDir)) {
+			return fmt.Errorf("数据目录位于程序包内，请先将数据移到独立目录")
+		}
+	}
 	parentPID := e.parentPID
 	if parentPID <= 0 {
 		parentPID = os.Getpid()
 	}
-	workDir, err := os.MkdirTemp(filepath.Dir(staged.root), "helper-*")
+	// Prepare on the target volume before exit, so denied access or disk-full
+	// cannot leave a closed application with half-copied replacement files.
+	workDir, err := os.MkdirTemp(filepath.Dir(target.Path), ".beeftv-update-*")
 	if err != nil {
+		return err
+	}
+	prepared := false
+	defer func() {
+		if !prepared {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
+	archive, err := os.Open(staged.archive)
+	if err != nil {
+		return err
+	}
+	hash := sha256.New()
+	n, copyErr := io.Copy(hash, io.LimitReader(archive, staged.artifact.Size+1))
+	_ = archive.Close()
+	if copyErr != nil || n != staged.artifact.Size || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), staged.artifact.SHA256) {
+		return ErrTampered
+	}
+	payloadPath := filepath.Join(workDir, "payload")
+	if err := extractSecureZip(staged.archive, payloadPath, defaultExtractLimits()); err != nil {
 		return err
 	}
 	req := HelperRequest{
@@ -190,15 +233,17 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 		ParentPID:      parentPID,
 		Platform:       staged.platform,
 		TargetPath:     target.Path,
-		StagedPath:     staged.root,
-		BackupPath:     filepath.Join(filepath.Dir(staged.root), "backup"),
+		StagedPath:     payloadPath,
+		BackupPath:     filepath.Join(workDir, "backup"),
 		PreparedPath:   filepath.Join(workDir, "prepared"),
 		ResultPath:     filepath.Join(workDir, "result.json"),
 		WaitTimeoutSec: 120,
 	}
 	if e.helper != nil {
 		go func() { _ = e.helper(req) }()
-		return waitForPrepared(ctx, req.PreparedPath, 5*time.Second)
+		err := waitForPrepared(ctx, req.PreparedPath, 5*time.Second)
+		prepared = err == nil
+		return err
 	}
 	requestPath := filepath.Join(workDir, "request.json")
 	data, err := json.Marshal(req)
@@ -224,6 +269,7 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 	cmd.SysProcAttr = detachedSysProcAttr()
 	logFile, err := os.OpenFile(filepath.Join(workDir, "helper.log"), os.O_CREATE|os.O_WRONLY, 0o600)
 	if err == nil {
+		defer logFile.Close()
 		cmd.Stdout = logFile
 		cmd.Stderr = logFile
 	}
@@ -232,11 +278,13 @@ func (e *Engine) prepareAndStartHelper(ctx context.Context, staged *stagedUpdate
 	}
 	if err := waitForPrepared(ctx, req.PreparedPath, 15*time.Second); err != nil {
 		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return err
 	}
 	e.mu.Lock()
 	e.helperProc = cmd.Process
 	e.mu.Unlock()
+	prepared = true
 	return nil
 }
 

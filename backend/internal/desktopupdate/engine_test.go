@@ -51,7 +51,7 @@ func TestCheckDownloadInstallHappyPath(t *testing.T) {
 		case "/latest":
 			http.Redirect(w, r, "/desktop-update.json", http.StatusFound)
 		case "/desktop-update.json":
-			payload := TestPayload("v1.6.0", "darwin-arm64", "https://example.invalid/placeholder", hex.EncodeToString(sum[:]), int64(len(zipBytes)), "新版本说明")
+			payload := testPayload("v1.6.0", "darwin-arm64", "https://example.invalid/placeholder", hex.EncodeToString(sum[:]), int64(len(zipBytes)), "新版本说明")
 			payload.Platforms["darwin-arm64"] = PlatformArtifact{
 				URL:    "https://" + r.Host + "/BeefTV.zip",
 				SHA256: hex.EncodeToString(sum[:]),
@@ -164,7 +164,7 @@ func TestCheckRejectsDowngradeEqualWrongPlatformTimeoutAndHash(t *testing.T) {
 	sum := sha256.Sum256(zipBytes)
 
 	t.Run("equal", func(t *testing.T) {
-		server := signedFeedServer(t, priv, TestPayload("v1.5.1", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
+		server := signedFeedServer(t, priv, testPayload("v1.5.1", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
 		engine := testEngine(t, pub, server, "v1.5.1", "darwin-arm64")
 		state, err := engine.CheckForUpdate(context.Background())
 		if err != nil {
@@ -176,7 +176,7 @@ func TestCheckRejectsDowngradeEqualWrongPlatformTimeoutAndHash(t *testing.T) {
 	})
 
 	t.Run("downgrade", func(t *testing.T) {
-		server := signedFeedServer(t, priv, TestPayload("v1.4.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
+		server := signedFeedServer(t, priv, testPayload("v1.4.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
 		engine := testEngine(t, pub, server, "v1.5.1", "darwin-arm64")
 		_, err := engine.CheckForUpdate(context.Background())
 		if !errors.Is(err, ErrNoDowngrade) {
@@ -185,7 +185,7 @@ func TestCheckRejectsDowngradeEqualWrongPlatformTimeoutAndHash(t *testing.T) {
 	})
 
 	t.Run("wrong-platform", func(t *testing.T) {
-		server := signedFeedServer(t, priv, TestPayload("v1.6.0", "windows-amd64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
+		server := signedFeedServer(t, priv, testPayload("v1.6.0", "windows-amd64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), ""), zipBytes)
 		engine := testEngine(t, pub, server, "v1.5.1", "darwin-arm64")
 		_, err := engine.CheckForUpdate(context.Background())
 		if !errors.Is(err, ErrWrongPlatform) {
@@ -213,7 +213,7 @@ func TestCheckRejectsDowngradeEqualWrongPlatformTimeoutAndHash(t *testing.T) {
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		payload := TestPayload("v1.6.0", "darwin-arm64", "", strings.Repeat("0", 64), int64(len(zipBytes)), "")
+		payload := testPayload("v1.6.0", "darwin-arm64", "", strings.Repeat("0", 64), int64(len(zipBytes)), "")
 		server := signedFeedServer(t, priv, payload, zipBytes)
 		engine := testEngine(t, pub, server, "v1.5.1", "darwin-arm64")
 		if _, err := engine.CheckForUpdate(context.Background()); err != nil {
@@ -226,7 +226,7 @@ func TestCheckRejectsDowngradeEqualWrongPlatformTimeoutAndHash(t *testing.T) {
 	})
 
 	t.Run("size", func(t *testing.T) {
-		payload := TestPayload("v1.6.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes))+9, "")
+		payload := testPayload("v1.6.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes))+9, "")
 		server := signedFeedServer(t, priv, payload, zipBytes)
 		engine := testEngine(t, pub, server, "v1.5.1", "darwin-arm64")
 		if _, err := engine.CheckForUpdate(context.Background()); err != nil {
@@ -261,7 +261,7 @@ func TestConcurrentCallsRejectedAndStatusReadableDuringDownload(t *testing.T) {
 				close(started)
 			}
 			time.Sleep(400 * time.Millisecond)
-			payload := TestPayload("v1.6.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), "")
+			payload := testPayload("v1.6.0", "darwin-arm64", "", hex.EncodeToString(sum[:]), int64(len(zipBytes)), "")
 			body, _ := SignEnvelope(priv, rewriteArtifactURL(payload, r.Host, zipBytes, sum[:]))
 			_, _ = w.Write(body)
 			return

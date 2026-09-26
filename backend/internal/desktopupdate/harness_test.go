@@ -107,7 +107,7 @@ func WindowsZipFiles(marker string) (map[string][]byte, map[string]bool) {
 	return files, map[string]bool{}
 }
 
-func TestPayload(version, platform, artifactURL, sha256 string, size int64, notes string) Payload {
+func testPayload(version, platform, artifactURL, sha256 string, size int64, notes string) Payload {
 	return Payload{
 		Schema:  1,
 		Version: version,

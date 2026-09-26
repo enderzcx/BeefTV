@@ -23,9 +23,12 @@ func parseStableVersion(value string) (versionTriple, error) {
 	if match == nil {
 		return versionTriple{}, fmt.Errorf("版本号无效")
 	}
-	major, _ := strconv.Atoi(match[1])
-	minor, _ := strconv.Atoi(match[2])
-	patch, _ := strconv.Atoi(match[3])
+	major, a := strconv.Atoi(match[1])
+	minor, b := strconv.Atoi(match[2])
+	patch, c := strconv.Atoi(match[3])
+	if a != nil || b != nil || c != nil {
+		return versionTriple{}, fmt.Errorf("版本号无效")
+	}
 	return versionTriple{major: major, minor: minor, patch: patch}, nil
 }
 

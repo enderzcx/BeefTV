@@ -33,15 +33,18 @@ type stagedUpdate struct {
 	root     string
 	archive  string
 	platform string
+	artifact PlatformArtifact
 }
 
 type Host struct {
 	CurrentVersion string
+	DataDir        string
 	Quit           func() error
 }
 
 type Options struct {
 	CurrentVersion  string
+	DataDir         string
 	FeedURL         string
 	PublicKey       string
 	Platform        string
@@ -75,11 +78,13 @@ type Engine struct {
 	verified        *verifiedUpdate
 	staged          *stagedUpdate
 	helperProc      *os.Process
+	dataDir         string
 }
 
 func New(host Host) *Engine {
 	opts := Options{
 		CurrentVersion: host.CurrentVersion,
+		DataDir:        host.DataDir,
 		Quit:           host.Quit,
 		FeedURL:        FeedURL,
 		PublicKey:      PublicKey,
@@ -99,6 +104,7 @@ func NewWithOptions(opts Options) *Engine {
 		helper:          opts.Helper,
 		quit:            opts.Quit,
 		parentPID:       opts.ParentPID,
+		dataDir:         opts.DataDir,
 	}
 	if engine.client == nil {
 		engine.client = newHTTPClient()
@@ -279,6 +285,7 @@ func (e *Engine) DownloadUpdate(ctx context.Context) (UpdateState, error) {
 		root:     extracted,
 		archive:  archivePath,
 		platform: verified.platform,
+		artifact: verified.artifact,
 	}
 	e.mu.Unlock()
 	e.set(func(state *UpdateState) {
@@ -333,6 +340,7 @@ func (e *Engine) killHelper() {
 	e.mu.Unlock()
 	if proc != nil {
 		_ = proc.Kill()
+		_, _ = proc.Wait()
 	}
 }
 
@@ -400,14 +408,10 @@ func (e *Engine) prepareStaging(version string) (string, error) {
 		}
 		root = filepath.Join(cache, "BeefTV", "updates")
 	}
-	dir := filepath.Join(root, version)
-	if err := os.RemoveAll(dir); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return os.MkdirTemp(root, version+"-")
 }
 
 func publicError(err error) string {

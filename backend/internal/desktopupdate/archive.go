@@ -47,7 +47,11 @@ func sanitizeZipName(name string) (string, bool, error) {
 		return "", false, ErrInvalidArchive
 	}
 	for _, part := range strings.Split(cleaned, "/") {
-		if part == "" || part == "." || part == ".." {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, ":<>\"|?*") || strings.TrimRight(part, ". ") != part {
+			return "", false, ErrInvalidArchive
+		}
+		base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
 			return "", false, ErrInvalidArchive
 		}
 	}
@@ -103,10 +107,10 @@ func extractSecureZip(zipPath, dest string, limits extractLimits) error {
 		if err != nil {
 			return err
 		}
-		if _, exists := seen[rel]; exists {
+		if _, exists := seen[strings.ToLower(rel)]; exists {
 			return fmt.Errorf("更新包包含重复路径")
 		}
-		seen[rel] = struct{}{}
+		seen[strings.ToLower(rel)] = struct{}{}
 		if isZipSymlink(file) {
 			return fmt.Errorf("更新包不能包含符号链接")
 		}

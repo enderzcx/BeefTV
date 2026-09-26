@@ -122,16 +122,9 @@ func RestoreBackup(req HelperRequest) error {
 }
 
 func renamePath(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	} else if !isCrossDevice(err) {
-		return err
-	}
-	if err := copyTree(src, dst); err != nil {
-		_ = os.RemoveAll(dst)
-		return err
-	}
-	return os.RemoveAll(src)
+	// Preparation puts both paths on the target volume. Never expose a partial
+	// recursive copy while replacing the installed program.
+	return os.Rename(src, dst)
 }
 
 func copyTree(src, dst string) error {
@@ -179,16 +172,19 @@ func retryIO(op func() error) error {
 func relaunchTarget(req HelperRequest) error {
 	switch {
 	case strings.HasPrefix(req.Platform, "darwin"):
-		cmd := exec.Command("/usr/bin/open", req.TargetPath)
-		if err := cmd.Start(); err == nil {
-			return nil
+		cmd := exec.Command(filepath.Join(req.TargetPath, "Contents", "MacOS", "BeefTV"))
+		cmd.Dir = filepath.Dir(req.TargetPath)
+		if err := cmd.Start(); err != nil {
+			return err
 		}
-		inner := filepath.Join(req.TargetPath, "Contents", "MacOS", "BeefTV")
-		return exec.Command(inner).Start()
+		return cmd.Process.Release()
 	case strings.HasPrefix(req.Platform, "windows"):
 		cmd := exec.Command(req.TargetPath)
 		cmd.Dir = filepath.Dir(req.TargetPath)
-		return cmd.Start()
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		return cmd.Process.Release()
 	default:
 		return ErrUnsupported
 	}
