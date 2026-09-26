@@ -319,8 +319,15 @@ async function connectCdp(cdpPort) {
         while (Date.now() < deadline) {
             const next = await readInteractiveBox();
             if (next && previous && next.x === previous.x && next.y === previous.y) {
-                box = next;
-                break;
+                await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+                const painted = await readInteractiveBox();
+                if (painted && painted.x === next.x && painted.y === next.y) {
+                    box = painted;
+                    break;
+                }
+                previous = painted;
+                await sleep(100);
+                continue;
             }
             previous = next;
             await sleep(100);
@@ -329,10 +336,7 @@ async function connectCdp(cdpPort) {
             console.log(`      (click target not interactable: ${label})`);
             return false;
         }
-        await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
-        const finalBox = await readInteractiveBox();
-        if (!finalBox || finalBox.x !== box.x || finalBox.y !== box.y) return false;
-        const point = { x: finalBox.x, y: finalBox.y, button: "left" };
+        const point = { x: box.x, y: box.y, button: "left" };
         await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, buttons: 0 });
         await send("Input.dispatchMouseEvent", { type: "mousePressed", ...point, buttons: 1, clickCount: 1 });
         await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, buttons: 0, clickCount: 1 });
