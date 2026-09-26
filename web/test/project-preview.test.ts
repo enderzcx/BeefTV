@@ -6,7 +6,13 @@ import * as workspaceProject from "@/lib/canvas/canvas-workspace-project";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 const node = (id: string, type: CanvasNodeType, metadata: CanvasNodeData["metadata"] = {}): CanvasNodeData => ({
-    id, type, title: id, position: { x: 0, y: 0 }, width: 100, height: 100, metadata,
+    id,
+    type,
+    title: id,
+    position: { x: 0, y: 0 },
+    width: 100,
+    height: 100,
+    metadata,
 });
 
 describe("project library covers", () => {
@@ -28,9 +34,7 @@ describe("project library covers", () => {
 
     test("keeps a node's original image after a stale preview address", () => {
         const image = node("image", CanvasNodeType.Image, { previewContent: "https://example.com/broken.png", content: "https://example.com/working.png" });
-        expect(projectPreviewMediaCandidates([image]).map((media) => media.url)).toEqual([
-            "https://example.com/broken.png", "https://example.com/working.png",
-        ]);
+        expect(projectPreviewMediaCandidates([image]).map((media) => media.url)).toEqual(["https://example.com/broken.png", "https://example.com/working.png"]);
     });
 
     test("empty cover contains only the centered icon", () => {

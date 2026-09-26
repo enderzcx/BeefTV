@@ -8,9 +8,9 @@ describe("inline image annotation model", () => {
     test("keeps the compact annotation toolbar icon-only", () => {
         const source = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-node-annotation-dialog.tsx"), "utf8");
         expect(source).not.toContain('font-medium">标注</span>');
-        expect(source).not.toContain('}保存</button>');
+        expect(source).not.toContain("}保存</button>");
         expect(source).toContain('aria-label={isSubmitting ? "正在保存" : "保存标注"}');
-        expect(source).toContain('text-neutral-900');
+        expect(source).toContain("text-neutral-900");
     });
     test("normalizes rectangles drawn in any direction", () => {
         expect(normalizeAnnotationRect({ x: 90, y: 80 }, { x: 20, y: 30 })).toEqual({ x: 20, y: 30, width: 70, height: 50 });

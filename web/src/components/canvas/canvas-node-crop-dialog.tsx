@@ -22,7 +22,9 @@ export function CanvasImageCropEditor({ imageUrl, imageDimensions, onCancel, onC
 
     useEffect(() => setCrop(defaultCrop), [imageDimensions.height, imageDimensions.width, imageUrl]);
     useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") onCancel();
+        };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [onCancel]);
@@ -51,25 +53,66 @@ export function CanvasImageCropEditor({ imageUrl, imageDimensions, onCancel, onC
     const confirmCrop = async () => {
         if (isSubmitting) return;
         setIsSubmitting(true);
-        try { await onConfirm(crop); } finally { setIsSubmitting(false); }
+        try {
+            await onConfirm(crop);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
-        <div ref={frameRef} data-image-crop-inline="true" aria-label="图片裁切选区" className="absolute inset-0 z-[calc(var(--node-z-overlay)+2)] overflow-hidden rounded-[inherit] bg-black/10 select-none" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+        <div
+            ref={frameRef}
+            data-image-crop-inline="true"
+            aria-label="图片裁切选区"
+            className="absolute inset-0 z-[calc(var(--node-z-overlay)+2)] overflow-hidden rounded-[inherit] bg-black/10 select-none"
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
             <div className="pointer-events-none absolute inset-0 bg-black/16" />
-            <div className="absolute cursor-move border border-white shadow-[0_0_0_9999px_rgba(0,0,0,.58)]" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} onPointerDown={(event) => beginDrag(event)}>
+            <div
+                className="absolute cursor-move border border-white shadow-[0_0_0_9999px_rgba(0,0,0,.58)]"
+                style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }}
+                onPointerDown={(event) => beginDrag(event)}
+            >
                 <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-black/72 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white shadow-sm">{sizeLabel}</span>
                 <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-50" aria-hidden>
-                    <i className="border-b border-r border-white/60" /><i className="border-b border-r border-white/60" /><i className="border-b border-white/60" />
-                    <i className="border-b border-r border-white/60" /><i className="border-b border-r border-white/60" /><i className="border-b border-white/60" />
-                    <i className="border-r border-white/60" /><i className="border-r border-white/60" /><i />
+                    <i className="border-b border-r border-white/60" />
+                    <i className="border-b border-r border-white/60" />
+                    <i className="border-b border-white/60" />
+                    <i className="border-b border-r border-white/60" />
+                    <i className="border-b border-r border-white/60" />
+                    <i className="border-b border-white/60" />
+                    <i className="border-r border-white/60" />
+                    <i className="border-r border-white/60" />
+                    <i />
                 </div>
-                {handles.map((handle) => <button key={handle} type="button" aria-label={`resize-${handle}`} className="absolute z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-neutral-900 shadow-sm" style={handlePosition(handle)} onPointerDown={(event) => beginDrag(event, handle)} />)}
+                {handles.map((handle) => (
+                    <button
+                        key={handle}
+                        type="button"
+                        aria-label={`resize-${handle}`}
+                        className="absolute z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-neutral-900 shadow-sm"
+                        style={handlePosition(handle)}
+                        onPointerDown={(event) => beginDrag(event, handle)}
+                    />
+                ))}
             </div>
             <div className="absolute bottom-3 left-1/2 flex h-11 -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/12 bg-[#202020]/94 p-1.5 pl-2.5 text-white shadow-xl backdrop-blur-xl">
-                <button type="button" aria-label="取消裁切" title="取消裁切" onClick={onCancel} className="grid size-8 place-items-center rounded-xl text-white/72 transition hover:bg-white/10 hover:text-white"><X className="size-4" /></button>
+                <button type="button" aria-label="取消裁切" title="取消裁切" onClick={onCancel} className="grid size-8 place-items-center rounded-xl text-white/72 transition hover:bg-white/10 hover:text-white">
+                    <X className="size-4" />
+                </button>
                 <span className="border-l border-white/12 pl-3 pr-1 text-xs font-medium tabular-nums text-white/88">{sizeLabel}</span>
-                <button type="button" aria-label={isSubmitting ? "正在裁切" : "确认裁切"} title={isSubmitting ? "正在裁切" : "确认裁切"} disabled={isSubmitting} onClick={() => void confirmCrop()} className="grid size-8 place-items-center rounded-xl bg-white text-black transition hover:bg-white/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait disabled:opacity-80">{isSubmitting ? <LoaderCircle className="size-4 animate-spin" stroke="#111111" strokeWidth={2.25} /> : <ArrowUp className="size-4" stroke="#111111" strokeWidth={2.25} />}</button>
+                <button
+                    type="button"
+                    aria-label={isSubmitting ? "正在裁切" : "确认裁切"}
+                    title={isSubmitting ? "正在裁切" : "确认裁切"}
+                    disabled={isSubmitting}
+                    onClick={() => void confirmCrop()}
+                    className="grid size-8 place-items-center rounded-xl bg-white text-black transition hover:bg-white/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait disabled:opacity-80"
+                >
+                    {isSubmitting ? <LoaderCircle className="size-4 animate-spin" stroke="#111111" strokeWidth={2.25} /> : <ArrowUp className="size-4" stroke="#111111" strokeWidth={2.25} />}
+                </button>
             </div>
         </div>
     );
@@ -83,8 +126,14 @@ export function resizeImageCrop(crop: CanvasImageCropRect, dx: number, dy: numbe
     let next = { ...crop };
     if (handle.includes("e")) next.width = crop.width + dx;
     if (handle.includes("s")) next.height = crop.height + dy;
-    if (handle.includes("w")) { next.x = crop.x + dx; next.width = crop.width - dx; }
-    if (handle.includes("n")) { next.y = crop.y + dy; next.height = crop.height - dy; }
+    if (handle.includes("w")) {
+        next.x = crop.x + dx;
+        next.width = crop.width - dx;
+    }
+    if (handle.includes("n")) {
+        next.y = crop.y + dy;
+        next.height = crop.height - dy;
+    }
     next.width = clamp(next.width, minSize, 1);
     next.height = clamp(next.height, minSize, 1);
     next.x = clamp(next.x, 0, 1 - next.width);
@@ -96,4 +145,6 @@ function handlePosition(handle: ResizeHandle) {
     return { left: handle.includes("w") ? "0%" : handle.includes("e") ? "100%" : "50%", top: handle.includes("n") ? "0%" : handle.includes("s") ? "100%" : "50%", cursor: `${handle}-resize` };
 }
 
-function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}

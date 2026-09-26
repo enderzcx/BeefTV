@@ -64,11 +64,18 @@ export function RecycleBinDialog({ open, onClose }: { open: boolean; onClose: ()
     };
 
     return createPortal(
-        <div className="recycle-bin-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <div
+            className="recycle-bin-overlay"
+            onMouseDown={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
             <section className="recycle-bin-dialog" role="dialog" aria-modal="true" aria-labelledby="recycle-bin-title">
                 <header className="recycle-bin-header">
                     <h2 id="recycle-bin-title">回收站</h2>
-                    <button ref={closeButtonRef} type="button" className="recycle-bin-close" aria-label="关闭回收站" onClick={onClose}><X /></button>
+                    <button ref={closeButtonRef} type="button" className="recycle-bin-close" aria-label="关闭回收站" onClick={onClose}>
+                        <X />
+                    </button>
                 </header>
 
                 <div className="recycle-bin-viewport">
@@ -84,13 +91,11 @@ export function RecycleBinDialog({ open, onClose }: { open: boolean; onClose: ()
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
-                                                onChange={(event) => setSelectedDeleted((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))}
+                                                onChange={(event) => setSelectedDeleted((current) => (event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id)))}
                                                 aria-label={`选择 ${item.title || "未命名项目"}`}
                                             />
                                         </label>
-                                        <div className="recycle-bin-preview">
-                                            {item.project ? <ProjectPreview project={item.project} emptyVariant="libtv" /> : <div className="canvas-project-empty is-libtv size-full" />}
-                                        </div>
+                                        <div className="recycle-bin-preview">{item.project ? <ProjectPreview project={item.project} emptyVariant="libtv" /> : <div className="canvas-project-empty is-libtv size-full" />}</div>
                                         <div className="recycle-bin-card-body">
                                             <h3>{item.title || "未命名项目"}</h3>
                                             <time>{formatTimelineDate(item.deletedAt || item.updatedAt)}</time>
@@ -104,24 +109,27 @@ export function RecycleBinDialog({ open, onClose }: { open: boolean; onClose: ()
 
                 <footer className="recycle-bin-footer">
                     <label className="recycle-bin-select-all">
-                        <input
-                            type="checkbox"
-                            aria-label="全选回收站项目"
-                            disabled={!allDeletedProjectIds.length}
-                            checked={allDeletedSelected}
-                            onChange={(event) => setSelectedDeleted(event.target.checked ? allDeletedProjectIds : [])}
-                        />
+                        <input type="checkbox" aria-label="全选回收站项目" disabled={!allDeletedProjectIds.length} checked={allDeletedSelected} onChange={(event) => setSelectedDeleted(event.target.checked ? allDeletedProjectIds : [])} />
                         <span>全选</span>
                         {selectedDeleted.length ? <span className="recycle-bin-selected-count">已选择 {selectedDeleted.length} 项</span> : null}
                     </label>
                     <div className="recycle-bin-actions">
-                        <Button danger disabled={!selectedDeleted.length} icon={<Trash2 className="size-4" />} onClick={() => setDeleteConfirmationOpen(true)}>彻底删除</Button>
-                        <Button disabled={!selectedDeleted.length} icon={<RotateCcw className="size-4" />} onClick={() => void restoreSelectedProjects()} aria-label="恢复到项目列表">恢复</Button>
+                        <Button danger disabled={!selectedDeleted.length} icon={<Trash2 className="size-4" />} onClick={() => setDeleteConfirmationOpen(true)}>
+                            彻底删除
+                        </Button>
+                        <Button disabled={!selectedDeleted.length} icon={<RotateCcw className="size-4" />} onClick={() => void restoreSelectedProjects()} aria-label="恢复到项目列表">
+                            恢复
+                        </Button>
                     </div>
                 </footer>
 
                 {deleteConfirmationOpen ? (
-                    <div className="recycle-delete-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirmationOpen(false); }}>
+                    <div
+                        className="recycle-delete-confirm-backdrop"
+                        onMouseDown={(event) => {
+                            if (event.target === event.currentTarget) setDeleteConfirmationOpen(false);
+                        }}
+                    >
                         <div className="recycle-delete-confirm" role="alertdialog" aria-modal="true" aria-labelledby="recycle-delete-title" aria-describedby="recycle-delete-description">
                             <h3 id="recycle-delete-title">确认彻底删除？</h3>
                             <p id="recycle-delete-description">将永久删除已选择的 {selectedDeleted.length} 个项目，删除后无法恢复。</p>

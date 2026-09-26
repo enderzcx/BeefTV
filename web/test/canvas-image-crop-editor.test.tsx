@@ -12,14 +12,7 @@ describe("CanvasImageCropEditor", () => {
     });
 
     test("renders the image crop controls inline inside the original node", () => {
-        const html = renderToStaticMarkup(
-            <CanvasImageCropEditor
-                imageUrl="data:image/png;base64,AAAA"
-                imageDimensions={{ width: 1200, height: 800 }}
-                onCancel={() => {}}
-                onConfirm={() => {}}
-            />,
-        );
+        const html = renderToStaticMarkup(<CanvasImageCropEditor imageUrl="data:image/png;base64,AAAA" imageDimensions={{ width: 1200, height: 800 }} onCancel={() => {}} onConfirm={() => {}} />);
 
         expect(html).toContain('data-image-crop-inline="true"');
         expect(html).toContain('aria-label="图片裁切选区"');
