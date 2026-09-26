@@ -26,9 +26,8 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-# Desktop releases intentionally include the complete FFmpeg/MediaPipe asset
-# set. Keep their release gate separate from the 65 MiB slim-web budget.
-export BEEFTV_WEB_BUDGET_MIB="${BEEFTV_WEB_BUDGET_MIB:-110}"
+# Use the shared size gate default; an explicit BEEFTV_WEB_BUDGET_MIB override
+# applies consistently to local and CI builds.
 
 if [[ "${BEEFTV_SKIP_LOCAL_VERIFY:-}" != "1" ]]; then
   "$ROOT_DIR/scripts/verify-beeftv-local-release.sh"
