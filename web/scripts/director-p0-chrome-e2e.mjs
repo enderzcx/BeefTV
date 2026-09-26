@@ -708,7 +708,7 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
         }, true);
         return true;
     })()`);
-    const stayClicked = await cdp.click('.ant-modal-confirm .ant-modal-confirm-btns button:first-child');
+    const stayClicked = await cdp.click(".ant-modal-confirm .ant-modal-confirm-btns button:first-child");
     if (!stayClicked) throw new Error("F: 留在导演台 button not clickable");
     const modalGone = await cdp.poll(
         `![...document.querySelectorAll('.ant-modal-confirm')].some((modal) => {
