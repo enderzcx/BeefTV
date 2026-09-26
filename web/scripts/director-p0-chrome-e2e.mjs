@@ -700,7 +700,15 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
     const modalShown = await cdp.poll(`!!document.querySelector('.ant-modal-confirm') && (document.body.innerText || "").includes('留在导演台')`, "close confirm modal", 40000);
     assert(modalShown, "F5 close is guarded by a confirm dialog, not silent exit");
 
-    const stayClicked = await cdp.clickText("留在导演台");
+    await cdp.evaluate(`(() => {
+        window.__directorCancelEvents = [];
+        for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, (event) => {
+            const button = event.target instanceof Element ? event.target.closest('button') : null;
+            if ((button?.textContent || '').trim() === '留在导演台') window.__directorCancelEvents.push({ type, trusted: event.isTrusted });
+        }, true);
+        return true;
+    })()`);
+    const stayClicked = await cdp.click(".ant-modal-confirm .ant-modal-confirm-btns button:first-child");
     if (!stayClicked) throw new Error("F: 留在导演台 button not clickable");
     const modalGone = await cdp.poll(
         `![...document.querySelectorAll('.ant-modal-confirm')].some((modal) => {
@@ -711,7 +719,12 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
         "modal dismissed",
         20000,
     );
-    assert(modalGone, "F6 confirm dialog dismissed after choosing 留在导演台");
+    const remainingModals = modalGone
+        ? []
+        : await cdp.evaluate(`({ events: window.__directorCancelEvents, modals: [
+        ...document.querySelectorAll('.ant-modal-confirm')
+    ].map((modal) => ({ text: (modal.innerText || '').slice(0, 300), className: modal.className, opacity: getComputedStyle(modal).opacity })) })`);
+    assert(modalGone, "F6 confirm dialog dismissed after choosing 留在导演台", JSON.stringify(remainingModals));
 
     await sleep(1000);
     const stillOpen = await cdp.evaluate(`document.querySelectorAll('.director-viewport-shell').length`);
